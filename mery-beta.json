@@ -1,0 +1,46 @@
+{
+    "version": "3.3.1",
+    "architecture": {
+        "64bit": {
+            "url": "https://www.haijin-boys.com/download/Mery-x64-3.3.1.zip",
+            "hash": "05876307115739a42673968a1b8f0c12472b42a933592e22974cd623e6b8605a"
+        },
+        "32bit": {
+            "url": "https://www.haijin-boys.com/download/Mery-3.3.1.zip",
+            "hash": "9635213bfcb60e14fbd39a10af82ae649af5940ada1bbc765962034f5737bc6b"
+        }
+    },
+    "homepage": "https://www.haijin-boys.com/wiki/",
+    "extract_dir": "Mery",
+    "bin": "Mery.exe",
+    "pre_install": [
+        "if((Test-Path(\"$env:TEMP\\__scoop__preserved\"))) { Write-Output \"[pre_install] Removing temporary preserved folder\"; Remove-Item \"$env:TEMP\\__scoop__preserved\" -Recurse -Force }",
+        "Write-Output \"[pre_install] Creating temporary preserved folder\"; New-Item \"$env:TEMP\\__scoop__preserved\" -type directory | Out-Null",
+        "Write-Output \"[pre_install] Preserving original files\"; Copy-Item \"$dir\\*\" \"$env:TEMP\\__scoop__preserved\" -Recurse -Force"
+    ],
+    "persist": ["Plugins"],
+    "post_install": [
+        "Write-Output \"[post_install] Overwriting from original files\"; Copy-Item \"$env:TEMP\\__scoop__preserved\\*\" \"$dir\" -Recurse -Force",
+        "Write-Output \"[post_install] Removing temporary preserved folder\"; Remove-Item \"$env:TEMP\\__scoop__preserved\" -Recurse -Force"
+    ],
+    "shortcuts": [
+        [
+            "Mery.exe",
+            "Mery (ベータ版)"
+        ]
+    ],
+    "checkver": {
+        "url": "https://www.haijin-boys.com/software/mery",
+        "re": "Ver ([\\d.]+)"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "http://www.haijin-boys.com/download/MeryPortable-x64-$version.zip"
+            },
+            "32bit": {
+                "url": "http://www.haijin-boys.com/download/MeryPortable-$version.zip"
+            }
+        }
+    }
+}
