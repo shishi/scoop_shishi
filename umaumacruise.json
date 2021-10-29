@@ -6,8 +6,8 @@
   "extract_dir": "umaumacruise",
   "bin": "UmaUmaCruise.exe",
   "pre_install": [
-    "mkdir \"$dir\\screenshot\"",
-    "\"{}\" | Out-File \"$dir\\setting.json\""
+    "if(!(Test-Path -Path \"$dir\\screenshot\" )){ mkdir \"$dir\\screenshot\"}",
+    "if(!(Test-Path -Path \"$dir\\setting.json\" )){ \"{}\" | Out-File \"$dir\\setting.json\"}"
   ],
   "persist": ["screenshot", "setting.json"],
   "post_install": ["Remove-Item \"$dir\\*.original\" -Recurse -Force"],
