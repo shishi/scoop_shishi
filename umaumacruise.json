@@ -1,0 +1,19 @@
+{
+  "version": "1.15.3",
+  "url": "https://github.com/amate/UmaUmaCruise/releases/download/v1.15.3/UmaUmaCruise_1.15.3.zip",
+  "hash": "2a43240b268a8a0eb3c6e7da43fe1b2e99b9d0e79bc74b698c476e50ca95b611",
+  "homepage": "https://github.com/amate/UmaUmaCruise",
+  "extract_dir": "UmaUmaCruise",
+  "bin": "UmaUmaCruise.exe",
+  "pre_install": [
+    "mkdir \"$dir\\screenshot\"",
+    "\"{}\" | Out-File \"$dir\\setting.json\""
+  ],
+  "persist": ["screenshot", "setting.json"],
+  "post_install": ["Remove-Item \"$dir\\*.original\" -Recurse -Force"],
+  "shortcuts": [["UmaUmaCruise.exe", "UmaUmaCruise"]],
+  "checkver": "github",
+  "autoupdate": {
+    "url": "https://github.com/amate/UmaUmaCruise/releases/download/v$version/UmaUmaCruise_$version.zip"
+  }
+}
