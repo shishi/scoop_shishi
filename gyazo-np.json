@@ -13,6 +13,6 @@
     "re": "https://files.gyazo.com/setup/Gyazo-([\\d.]+).exe"
   },
   "autoupdate": {
-    "url": "https://files.gyazo.com/setup/Gyazo-$version.exe
+    "url": "https://files.gyazo.com/setup/Gyazo-$version.exe"
   }
 }
