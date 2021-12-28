@@ -5,12 +5,21 @@
     "homepage": "https://github.com/nathancorvussolis/crvskkserv",
     "extract_dir": "crvskkserv",
     "bin": "crvskkserv.exe",
-    "pre_install": [],
+    "pre_install": [
+        "if (!(Test-Path \"$persist_dir\\crvskkserv.ini\")) {",
+        "   New-Item \"$dir\\crvskkserv.ini\" -ItemType File | Out-Null",
+        "}"
+    ],
     "persist": [
         "crvskkserv.ini"
     ],
     "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
-    "shortcuts": [],
+    "shortcuts": [
+        [
+            "crvskkserv.exe",
+            "crvskkserv"
+        ]
+    ],
     "checkver": "github",
     "autoupdate": {
         "url": "https://github.com/nathancorvussolis/crvskkserv/releases/download/v$version/crvskkserv_$version.zip"
