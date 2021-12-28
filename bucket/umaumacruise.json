@@ -1,26 +1,15 @@
 {
-    "version": "1.17",
-    "url": "https://github.com/amate/UmaUmaCruise/releases/download/v1.17/UmaUmaCruise_1.17.zip",
-    "hash": "9ff89175d6137ac2ca04493cf2c519eb163ee74e870a4faf2aeb6c37f754bee9",
-    "homepage": "https://github.com/amate/UmaUmaCruise",
-    "extract_dir": "umaumacruise",
-    "bin": "UmaUmaCruise.exe",
-    "pre_install": [
-        
-    ],
-    "persist": [
-        "screenshot",
-        "setting.json"
-    ],
-    "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
-    "shortcuts": [
-        [
-            "UmaUmaCruise.exe",
-            "UmaUmaCruise"
-        ]
-    ],
-    "checkver": "github",
-    "autoupdate": {
-        "url": "https://github.com/amate/UmaUmaCruise/releases/download/v$version/UmaUmaCruise_$version.zip"
-    }
+  "version": "1.17",
+  "url": "https://github.com/amate/UmaUmaCruise/releases/download/v1.17/UmaUmaCruise_1.17.zip",
+  "hash": "9ff89175d6137ac2ca04493cf2c519eb163ee74e870a4faf2aeb6c37f754bee9",
+  "homepage": "https://github.com/amate/UmaUmaCruise",
+  "bin": "UmaUmaCruise.exe",
+  "pre_install": [],
+  "persist": ["screenshot", "setting.json"],
+  "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
+  "shortcuts": [["UmaUmaCruise.exe", "UmaUmaCruise"]],
+  "checkver": "github",
+  "autoupdate": {
+    "url": "https://github.com/amate/UmaUmaCruise/releases/download/v$version/UmaUmaCruise_$version.zip"
+  }
 }
