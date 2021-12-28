@@ -10,12 +10,7 @@
         "crvskkserv.ini"
     ],
     "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
-    "shortcuts": [
-        [
-            "crvskkserv.exe",
-            "crvskkserv"
-        ]
-    ],
+    "shortcuts": [],
     "checkver": "github",
     "autoupdate": {
         "url": "https://github.com/nathancorvussolis/crvskkserv/releases/download/v$version/crvskkserv_$version.zip"
