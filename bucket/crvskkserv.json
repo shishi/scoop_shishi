@@ -7,7 +7,14 @@
     "pre_install": [
         "if (!(Test-Path \"$persist_dir\\crvskkserv.ini\")) {",
         "   New-Item \"$dir\\crvskkserv.ini\" -ItemType File | Out-Null",
-        "}"
+        "}",
+        "$WshShell = New-Object -comObject WScript.Shell",
+        "$startup = [environment]::getfolderpath(\"Startup\")",
+        "$lnk = \"$dir\\crvskkserv.lnk\"",
+        "$Shortcut = $WshShell.CreateShortcut($lnk)",
+        "$Shortcut.TargetPath = \"$dir\\crvskkserv.exe\"",
+        "$Shortcut.Save()",
+        "Move-Item $lnk $startup"
     ],
     "persist": [
         "crvskkserv.ini"
