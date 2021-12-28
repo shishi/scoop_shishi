@@ -14,7 +14,7 @@
         "$Shortcut = $WshShell.CreateShortcut($lnk)",
         "$Shortcut.TargetPath = \"$dir\\crvskkserv.exe\"",
         "$Shortcut.Save()",
-        "Move-Item $lnk $startup"
+        "Move-Item -Force $lnk $startup"
     ],
     "persist": [
         "crvskkserv.ini"
