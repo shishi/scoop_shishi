@@ -1,5 +1,6 @@
 {
   "version": "3.3.4",
+  "homepage": "https://www.haijin-boys.com/wiki/",
   "architecture": {
     "64bit": {
       "url": "http://www.haijin-boys.com/download/Mery-x64-3.3.4.zip",
@@ -10,12 +11,13 @@
       "hash": "2eaf7caee6a5cbdd44f13324fcb1ff12631808eff85979295b22fa6e366f23a3"
     }
   },
-  "homepage": "https://www.haijin-boys.com/wiki/",
   "extract_dir": "mery",
+  "pre_install": ["Remove-Item \"$dir\\*.original\" -Recurse -Force"],
+  "uninstaller": {},
   "bin": ["Mery.exe"],
-  "pre_install": [],
-  "persist": ["Dicts", "Ext", "Macros", "Plugins"],
   "shortcuts": [["Mery.exe", "Mery"]],
+  "persist": ["Dicts", "Ext", "Macros", "Plugins"],
+  "post_install": [],
   "checkver": {
     "url": "https://www.haijin-boys.com/software/mery",
     "re": "Ver ([\\d.]+)"
