@@ -12,12 +12,11 @@
     }
   },
   "extract_dir": "mery",
-  "pre_install": ["Remove-Item \"$dir\\*.original\" -Recurse -Force"],
-  "uninstaller": {},
+  "pre_install": [],
   "bin": ["Mery.exe"],
   "shortcuts": [["Mery.exe", "Mery"]],
   "persist": ["Dicts", "Ext", "Macros", "Plugins"],
-  "post_install": [],
+  "post_install": ["Remove-Item \"$dir\\*.original\" -Recurse -Force"],
   "checkver": {
     "url": "https://www.haijin-boys.com/software/mery",
     "re": "Ver ([\\d.]+)"
