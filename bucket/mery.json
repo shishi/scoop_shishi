@@ -11,11 +11,10 @@
     }
   },
   "homepage": "https://www.haijin-boys.com/wiki/",
-  "extract_dir": "Mery",
+  "extract_dir": "mery",
   "bin": ["Mery.exe"],
   "pre_install": [],
   "persist": ["Dicts", "Ext", "Macros", "Plugins"],
-  "post_install": ["Remove-Item \"$dir\\*.original\" -Recurse -Force"],
   "shortcuts": [["Mery.exe", "Mery"]],
   "checkver": {
     "url": "https://www.haijin-boys.com/software/mery",
