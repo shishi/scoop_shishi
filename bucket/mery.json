@@ -11,7 +11,7 @@
       "hash": "2eaf7caee6a5cbdd44f13324fcb1ff12631808eff85979295b22fa6e366f23a3"
     }
   },
-  "extract_dir": "mery",
+  "extract_dir": "Mery",
   "bin": ["Mery.exe"],
   "shortcuts": [["Mery.exe", "Mery"]],
   "persist": ["Dicts", "Ext", "Macros", "Plugins"],
