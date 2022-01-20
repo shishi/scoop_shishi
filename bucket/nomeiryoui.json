@@ -1,0 +1,16 @@
+{
+  "version": "2.41",
+  "url": "https://github.com/Tatsu-syo/noMeiryoUI/releases/download/TAG-2.41/noMeiryoUI241.zip",
+  "hash": "8d8db1b725627cd89ea5df6923792891033daeb6fe000e5d3e3a0a69998c730d",
+  "homepage": "https://github.com/Tatsu-syo/noMeiryoUI/",
+  "extract_dir": "nomeiryoui",
+  "bin": "noMeiryoUI.exe",
+  "pre_install": [],
+  "persist": [],
+  "post_install": "",
+  "shortcuts": [],
+  "checkver": "github",
+  "autoupdate": {
+    "url": "https://github.com/Tatsu-syo/noMeiryoUI/releases/download/TAG-$version/noMeiryoUI$cleanVersion.zip"
+  }
+}
