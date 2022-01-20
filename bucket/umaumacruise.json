@@ -5,7 +5,6 @@
   "homepage": "https://github.com/amate/UmaUmaCruise",
   "extract_dir": "umaumacruise",
   "bin": "UmaUmaCruise.exe",
-  "pre_install": [],
   "persist": ["screenshot", "setting.json"],
   "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
   "shortcuts": [["UmaUmaCruise.exe", "UmaUmaCruise"]],

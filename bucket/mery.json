@@ -12,7 +12,6 @@
     }
   },
   "extract_dir": "mery",
-  "pre_install": [],
   "bin": ["Mery.exe"],
   "shortcuts": [["Mery.exe", "Mery"]],
   "persist": ["Dicts", "Ext", "Macros", "Plugins"],

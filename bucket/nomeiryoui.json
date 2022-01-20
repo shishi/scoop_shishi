@@ -5,10 +5,7 @@
   "homepage": "https://github.com/Tatsu-syo/noMeiryoUI/",
   "extract_dir": "nomeiryoui",
   "bin": "noMeiryoUI.exe",
-  "pre_install": [],
-  "persist": [],
-  "post_install": "",
-  "shortcuts": [],
+  "shortcuts": [["noMeiryoUI.exe", "noMeiryoUI"]],
   "checkver": "github",
   "autoupdate": {
     "url": "https://github.com/Tatsu-syo/noMeiryoUI/releases/download/TAG-$version/noMeiryoUI$cleanVersion.zip"
