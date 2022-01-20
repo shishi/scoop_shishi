@@ -3,7 +3,6 @@
   "url": "https://github.com/Tatsu-syo/noMeiryoUI/releases/download/TAG-2.41/noMeiryoUI241.zip",
   "hash": "9acb61ab3c9e1d6ba1f0823ba777d4c418fbc0b67a04588442082317868c0293",
   "homepage": "https://github.com/Tatsu-syo/noMeiryoUI/",
-  "extract_dir": "nomeiryoui",
   "bin": "noMeiryoUI.exe",
   "shortcuts": [["noMeiryoUI.exe", "noMeiryoUI"]],
   "checkver": "github",
