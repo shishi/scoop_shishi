@@ -1,33 +1,43 @@
 {
-  "version": "3.3.4",
-  "homepage": "https://www.haijin-boys.com/wiki/",
-  "architecture": {
-    "64bit": {
-      "url": "http://www.haijin-boys.com/download/Mery-x64-3.3.4.zip",
-      "hash": "29b4250cd65b728f6dde3b71b1ae0b3b2f14795abcbe105ed8f8bbb89d0241fc"
-    },
-    "32bit": {
-      "url": "http://www.haijin-boys.com/download/Mery-3.3.4.zip",
-      "hash": "2eaf7caee6a5cbdd44f13324fcb1ff12631808eff85979295b22fa6e366f23a3"
-    }
-  },
-  "extract_dir": "Mery",
-  "bin": ["Mery.exe"],
-  "shortcuts": [["Mery.exe", "Mery"]],
-  "persist": ["Dicts", "Ext", "Macros", "Plugins"],
-  "post_install": ["Remove-Item \"$dir\\*.original\" -Recurse -Force"],
-  "checkver": {
-    "url": "https://www.haijin-boys.com/software/mery",
-    "re": "Ver ([\\d.]+)"
-  },
-  "autoupdate": {
+    "version": "3.3.5",
+    "homepage": "https://www.haijin-boys.com/wiki/",
     "architecture": {
-      "64bit": {
-        "url": "http://www.haijin-boys.com/download/Mery-x64-$version.zip"
-      },
-      "32bit": {
-        "url": "http://www.haijin-boys.com/download/Mery-$version.zip"
-      }
+        "64bit": {
+            "url": "http://www.haijin-boys.com/download/Mery-x64-3.3.5.zip",
+            "hash": "81685df3eb8bed94318f221ebeacb1bcb9f0da2e76ab92082046a570ee79134e"
+        },
+        "32bit": {
+            "url": "http://www.haijin-boys.com/download/Mery-3.3.5.zip",
+            "hash": "702921425c3f219b18e55de143c0fc87f01cfb9adae53b5ade0ec76001552413"
+        }
+    },
+    "extract_dir": "Mery",
+    "bin": "Mery.exe",
+    "shortcuts": [
+        [
+            "Mery.exe",
+            "Mery"
+        ]
+    ],
+    "persist": [
+        "Dicts",
+        "Ext",
+        "Macros",
+        "Plugins"
+    ],
+    "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
+    "checkver": {
+        "url": "https://www.haijin-boys.com/software/mery",
+        "re": "Ver ([\\d.]+)"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "http://www.haijin-boys.com/download/Mery-x64-$version.zip"
+            },
+            "32bit": {
+                "url": "http://www.haijin-boys.com/download/Mery-$version.zip"
+            }
+        }
     }
-  }
 }
