@@ -6,7 +6,7 @@
       "hash": "00a35dd165c3ae310a757003d00ff67ba56ad9fd40c0003f973717293d9eb60d"
     }
   },
-  "extract_dir": "TClock-Win10_${cleanVersion}_64bit",
+  "extract_dir": "TClock-Win10_${basename}_64bit",
   "homepage": "https://github.com/MantisMountainMobile/TClock-Win10",
   "bin": "tclock.exe",
   "pre_install": [
