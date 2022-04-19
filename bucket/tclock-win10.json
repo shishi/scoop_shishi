@@ -8,22 +8,22 @@
   },
   "extract_dir": "TClock-Win10_5161_64bit",
   "homepage": "https://github.com/MantisMountainMobile/TClock-Win10",
-  "bin": "tclock.exe",
+  "bin": "TClock-Win10.exe",
   "pre_install": [
     "if (!(Test-Path \"$persist_dir\\tclock.ini\")) {",
     "   New-Item \"$dir\\tclock.ini\" -ItemType File | Out-Null",
     "}",
     "$WshShell = New-Object -comObject WScript.Shell",
     "$startup = [environment]::getfolderpath(\"Startup\")",
-    "$lnk = \"$dir\\tclock-win10.lnk\"",
+    "$lnk = \"$dir\\TClock-Win10.lnk\"",
     "$Shortcut = $WshShell.CreateShortcut($lnk)",
-    "$Shortcut.TargetPath = \"$dir\\tclock.exe\"",
+    "$Shortcut.TargetPath = \"$dir\\TClock-Win10.exe\"",
     "$Shortcut.Save()",
     "Move-Item -Force $lnk $startup"
   ],
   "persist": ["tclock.ini"],
   "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
-  "shortcuts": [["tclock.exe", "tclock"]],
+  "shortcuts": [["TClock-Win10.exe", "TClock-Win10"]],
   "checkver": "github",
   "autoupdate": {
     "architecture": {
