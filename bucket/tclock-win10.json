@@ -10,8 +10,8 @@
   "homepage": "https://github.com/MantisMountainMobile/TClock-Win10",
   "bin": "TClock-Win10.exe",
   "pre_install": [
-    "if (!(Test-Path \"$persist_dir\\tclock.ini\")) {",
-    "   New-Item \"$dir\\tclock.ini\" -ItemType File | Out-Null",
+    "if (!(Test-Path \"$persist_dir\\tclock-win10.ini\")) {",
+    "   New-Item \"$dir\\tclock-win10.ini\" -ItemType File | Out-Null",
     "}",
     "$WshShell = New-Object -comObject WScript.Shell",
     "$startup = [environment]::getfolderpath(\"Startup\")",
@@ -21,7 +21,7 @@
     "$Shortcut.Save()",
     "Move-Item -Force $lnk $startup"
   ],
-  "persist": ["tclock.ini"],
+  "persist": ["tclock-win10.ini"],
   "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
   "shortcuts": [["TClock-Win10.exe", "TClock-Win10"]],
   "checkver": "github",
