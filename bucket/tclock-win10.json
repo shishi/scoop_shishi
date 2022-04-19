@@ -12,7 +12,14 @@
   "pre_install": [
     "if (!(Test-Path \"$persist_dir\\tclock.ini\")) {",
     "   New-Item \"$dir\\tclock.ini\" -ItemType File | Out-Null",
-    "}"
+    "}",
+    "$WshShell = New-Object -comObject WScript.Shell",
+    "$startup = [environment]::getfolderpath(\"Startup\")",
+    "$lnk = \"$dir\\tclock-win10.lnk\"",
+    "$Shortcut = $WshShell.CreateShortcut($lnk)",
+    "$Shortcut.TargetPath = \"$dir\\tclock.exe\"",
+    "$Shortcut.Save()",
+    "Move-Item -Force $lnk $startup"
   ],
   "persist": ["tclock.ini"],
   "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
