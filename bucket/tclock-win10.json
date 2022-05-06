@@ -1,9 +1,9 @@
 {
-    "version": "5.2.1.1",
+    "version": "5.2.2.1",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/MantisMountainMobile/TClock-Win10/releases/download/5.2.1.1/TClock-Win10_5211_64bit.zip",
-            "hash": "11920e13295533ed51b0c19307f40b26152ce20098a0962c38c1b14d373ed96d"
+            "url": "https://github.com/MantisMountainMobile/TClock-Win10/releases/download/5.2.2.1/TClock-Win10_5221_64bit.zip",
+            "hash": "cdb12b8c49d7ac6924462a8d7ac8c1ccd17a63c97c78f7528c4bcbe33de21233"
         }
     },
     "extract_dir": "TClock-Win10_5161_64bit",
