@@ -1,7 +1,7 @@
 {
-    "version": "1.19",
-    "url": "https://github.com/amate/UmaUmaCruise/releases/download/v1.19/UmaUmaCruise_1.19.zip",
-    "hash": "eaa3c9185f07db98f9aed5380ecd13352ec93250ba57d7c2591a79b8c288e62c",
+    "version": "1.20",
+    "url": "https://github.com/amate/UmaUmaCruise/releases/download/v1.20/UmaUmaCruise_1.20.zip",
+    "hash": "3cc78faee0238616737450d8cc8c723fcd90624791453c7f2c60adee14728035",
     "homepage": "https://github.com/amate/UmaUmaCruise",
     "extract_dir": "UmaUmaCruise",
     "bin": "UmaUmaCruise.exe",
