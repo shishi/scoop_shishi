@@ -1,14 +1,14 @@
 {
-    "version": "3.5.7",
+    "version": "3.5.8",
     "homepage": "https://www.haijin-boys.com/wiki/",
     "architecture": {
         "64bit": {
-            "url": "http://www.haijin-boys.com/download/Mery-x64-3.5.7.zip",
-            "hash": "33bcf1f7de9bdc39a1605886a26b7f339966ca5231189094a4dd7d3b28f70bd5"
+            "url": "http://www.haijin-boys.com/download/Mery-x64-3.5.8.zip",
+            "hash": "71221beca1f7e99a8a0eb6bf79a657fcba9c9a5cb018037216344ea004eac232"
         },
         "32bit": {
-            "url": "http://www.haijin-boys.com/download/Mery-3.5.7.zip",
-            "hash": "d781c83019c5d5c2ddda9379d32b5e5bd72c7dddef974cc1e08521ba819dcf3c"
+            "url": "http://www.haijin-boys.com/download/Mery-3.5.8.zip",
+            "hash": "7d76b2a1add77c898bd03162c71075dd8df39f89b382683dc09494944a278a45"
         }
     },
     "extract_dir": "Mery",
