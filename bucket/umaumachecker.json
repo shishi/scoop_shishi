@@ -12,7 +12,7 @@
     "config.json",
     "output.log"
   ],
-  "pre_install": "New-Item -Type File config.json; New-Item -Type File output.log",
+  "pre_install": "New-Item -Type File \"$dir\\config.json\"; New-Item -Type File \"$dir\\output.log\"",
   "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
   "shortcuts": [["UmaUmaChecker.exe", "UmaUmaChecker"]],
   "checkver": "github",
