@@ -4,7 +4,14 @@
   "hash": "792848b2bea8444e4fb392d2b0df8d2187c95b91519938e66086cb260964aef8",
   "homepage": "https://github.com/Cilda/UmaUmaChecker",
   "bin": "UmaUmaChecker.exe",
-  "persist": ["Library", "screenshots", "simstring", "tessdata"],
+  "persist": [
+    "Library",
+    "screenshots",
+    "simstring",
+    "tessdata",
+    "config.json",
+    "output.log"
+  ],
   "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
   "shortcuts": [["UmaUmaChecker.exe", "UmaUmaChecker"]],
   "checkver": "github",
