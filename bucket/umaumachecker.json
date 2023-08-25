@@ -1,22 +1,27 @@
 {
-  "version": "1.60",
-  "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v1.6.0/UmaUmaChecker_v1.6.0_x64.zip",
-  "hash": "792848b2bea8444e4fb392d2b0df8d2187c95b91519938e66086cb260964aef8",
-  "homepage": "https://github.com/Cilda/UmaUmaChecker",
-  "bin": "UmaUmaChecker.exe",
-  "persist": [
-    "Library",
-    "screenshots",
-    "simstring",
-    "tessdata",
-    "config.json",
-    "output.log"
-  ],
-  "pre_install": "New-Item -Type File \"$dir\\config.json\"; New-Item -Type File \"$dir\\output.log\"",
-  "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
-  "shortcuts": [["UmaUmaChecker.exe", "UmaUmaChecker"]],
-  "checkver": "github",
-  "autoupdate": {
-    "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v$version/UmaUmaChecker_v$version_x64.zip"
-  }
+    "version": "1.6.1",
+    "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v1.6.1/UmaUmaChecker_v1.6.1_x64.zip",
+    "hash": "6860a97a31153ee03a12bb6ff65cc77ea1e1a9bb9305428c5587813de10856f9",
+    "homepage": "https://github.com/Cilda/UmaUmaChecker",
+    "bin": "UmaUmaChecker.exe",
+    "persist": [
+        "Library",
+        "screenshots",
+        "simstring",
+        "tessdata",
+        "config.json",
+        "output.log"
+    ],
+    "pre_install": "New-Item -Type File \"$dir\\config.json\"; New-Item -Type File \"$dir\\output.log\"",
+    "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
+    "shortcuts": [
+        [
+            "UmaUmaChecker.exe",
+            "UmaUmaChecker"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v$version/UmaUmaChecker_v$version_x64.zip"
+    }
 }
