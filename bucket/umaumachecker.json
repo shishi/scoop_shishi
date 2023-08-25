@@ -17,6 +17,6 @@
   "shortcuts": [["UmaUmaChecker.exe", "UmaUmaChecker"]],
   "checkver": "github",
   "autoupdate": {
-    "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v$version/UmaUmaChecker_$version.zip"
+    "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v$version/UmaUmaChecker_v$version_x64.zip"
   }
 }
