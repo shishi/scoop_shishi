@@ -1,7 +1,7 @@
 {
-    "version": "1.6.1",
-    "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v1.6.1/UmaUmaChecker_v1.6.1_x64.zip",
-    "hash": "6860a97a31153ee03a12bb6ff65cc77ea1e1a9bb9305428c5587813de10856f9",
+    "version": "1.6.2",
+    "url": "https://github.com/Cilda/UmaUmaChecker/releases/download/v1.6.2/UmaUmaChecker_v1.6.2_x64.zip",
+    "hash": "24f00aba1a842b0d9a396ed34a5df385bc2e9c6a69d0e51e41c7e4991f7928f9",
     "homepage": "https://github.com/Cilda/UmaUmaChecker",
     "bin": "UmaUmaChecker.exe",
     "persist": [
