@@ -38,6 +38,10 @@ def zip_names(url, tail=300000):
     if i < 0:
         raise SystemExit('EOCD が見つからない: %s' % url)
     cd_off = struct.unpack('<I', buf[i + 16:i + 20])[0]
+    if cd_off == 0xFFFFFFFF:
+        # ZIP64。実際のオフセットは別レコードにあり、この値は番兵。
+        # そのまま使うとゴミを読んで、黙って間違った一覧を作ってしまう
+        raise SystemExit('ZIP64 は未対応: %s' % url)
     base = total - len(buf)
     if cd_off < base:
         buf = curl(['-H', 'Range: bytes=%d-' % cd_off, url])
