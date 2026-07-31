@@ -1,4 +1,4 @@
-﻿{
+{
     "version": "1.051",
     "description": "BIZ UDGothic / BIZ UDPGothic — モリサワのユニバーサルデザインフォント",
     "homepage": "https://github.com/googlefonts/morisawa-biz-ud-gothic",
@@ -66,7 +66,7 @@
             "# 前回の試行が強制終了で残した記録があれば、それを「元の状態」の正とする",
             "$prior = $null",
             "if (Test-Path $journalPath) {",
-            "    $prior = Get-Content -LiteralPath $journalPath -Raw | ConvertFrom-Json",
+            "    $prior = Get-Content -LiteralPath $journalPath -Raw -Encoding UTF8 | ConvertFrom-Json",
             "    Write-Host \"前回の試行の記録が残っている。元の状態はそちらを使う: $journalPath\" -Foreground Yellow",
             "}",
             "",
@@ -221,7 +221,7 @@
             "",
             "# @(...) で囲んではいけない。PS 5.1 の ConvertFrom-Json は配列を 1 個の値として流すため、",
             "# @() で包むと foreach が 1 回しか回らず $e が配列全体になる（実測で確認済み）",
-            "$entries = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json",
+            "$entries = Get-Content -LiteralPath $statePath -Raw -Encoding UTF8 | ConvertFrom-Json",
             "$unresolved = New-Object Collections.ArrayList   # 触れなかったエントリ",
             "",
             "foreach ($e in $entries) {",

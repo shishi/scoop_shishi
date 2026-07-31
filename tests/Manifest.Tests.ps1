@@ -9,7 +9,7 @@ Describe 'manifest の静的検査' {
         $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
         $script:Fonts = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
             Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') } |
-            ForEach-Object { [pscustomobject]@{ Name = $_.BaseName; Json = (Get-Content $_.FullName -Raw | ConvertFrom-Json) } })
+            ForEach-Object { [pscustomobject]@{ Name = $_.BaseName; Json = (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) } })
     }
 
     It 'フォント manifest が 1 つ以上ある' {
@@ -17,23 +17,23 @@ Describe 'manifest の静的検査' {
     }
 
     It '<_.BaseName> に必須キーが揃っている' -ForEach $script:ManifestFiles {
-        $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
         foreach ($key in 'version', 'description', 'homepage', 'license', 'url', 'hash', 'checkver', 'autoupdate') {
             $j.PSObject.Properties.Name | Should -Contain $key
         }
     }
 
     It '<_.BaseName> の license は OFL-1.1' -ForEach $script:ManifestFiles {
-        (Get-Content $_.FullName -Raw | ConvertFrom-Json).license | Should -Be 'OFL-1.1'
+        (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json).license | Should -Be 'OFL-1.1'
     }
 
     It '<_.BaseName> の autoupdate.url に $version が入っている' -ForEach $script:ManifestFiles {
-        $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
         ($j.autoupdate.url -join ' ') | Should -Match '\$version'
     }
 
     It '<_.BaseName> は extract_dir を持つなら autoupdate 側にも持つ' -ForEach $script:ManifestFiles {
-        $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($j.PSObject.Properties.Name -contains 'extract_dir') {
             $j.autoupdate.PSObject.Properties.Name | Should -Contain 'extract_dir'
         }
@@ -62,5 +62,10 @@ Describe 'manifest の静的検査' {
 
     It 'installer が global インストールを拒否する' {
         ($script:Fonts[0].Json.installer.script -join "`n") | Should -Match '\$global'
+    }
+
+    It '<_.BaseName> に BOM が付いていない' -ForEach $script:ManifestFiles {
+        $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
+        ($head -join ',') | Should -Not -Be '239,187,191'
     }
 }

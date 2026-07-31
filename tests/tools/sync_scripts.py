@@ -40,18 +40,18 @@ def load_blocks():
 
 
 def apply(path, blocks):
-    # utf-8-sig: PowerShell 5.1 の既定の Get-Content（-Encoding 省略時）は BOM が無い
-    # UTF-8 をシステムの ANSI コードページ（日本語環境では cp932）として読むため、
-    # スクリプト中の日本語コメントが原因で JSON 構造そのものが壊れる（実測で確認済み）。
-    # BOM を付けて書くことで Get-Content の既定動作でも正しく UTF-8 と認識させる。
-    # utf-8-sig は読み込み時に BOM の有無どちらにも対応する。
+    # 読みは utf-8-sig（BOM 付きでも無しでも通る）、書きは BOM 無し。
+    # manifest に BOM を付けてはいけない。scoop 本体は Get-Content -Raw -Encoding UTF8 で
+    # 読むので BOM は不要だし、Python 側で encoding='utf-8' で読むツール
+    # （zip_entries.py / nameid4.py）が BOM で例外になる。
+    # PowerShell 側で日本語が化けるのは読む側の問題なので、読む側で -Encoding UTF8 を指定する
     with io.open(path, encoding='utf-8-sig') as f:
         manifest = json.load(f)
     manifest.setdefault('installer', {})['script'] = blocks['installer']
     manifest['pre_uninstall'] = blocks['pre_uninstall']
     manifest.setdefault('uninstaller', {})['script'] = blocks['uninstaller']
     out = json.dumps(manifest, ensure_ascii=False, indent=4) + '\n'
-    with io.open(path, 'w', encoding='utf-8-sig', newline='\n') as f:
+    with io.open(path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(out)
 
 
