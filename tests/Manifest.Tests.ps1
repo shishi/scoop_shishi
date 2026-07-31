@@ -10,6 +10,11 @@ Describe 'manifest の静的検査' {
         $script:Fonts = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
             Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') } |
             ForEach-Object { [pscustomobject]@{ Name = $_.BaseName; Json = (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) } })
+        # BeforeDiscovery の $script:ManifestFiles は Discovery フェーズ限定で、
+        # -ForEach では使えても Run フェーズの通常 It 本体からは見えない（実測: Count が 0 になる）。
+        # ここで BeforeAll として同じフィルタを再設定し、Run フェーズでも参照できるようにする
+        $script:ManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
+            Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') })
     }
 
     It 'フォント manifest が 1 つ以上ある' {
@@ -67,6 +72,38 @@ Describe 'manifest の静的検査' {
     It '<_.BaseName> に BOM が付いていない' -ForEach $script:ManifestFiles {
         $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
         ($head -join ',') | Should -Not -Be '239,187,191'
+    }
+
+    It '<_.BaseName> の改行が CRLF に揃っている' -ForEach $script:ManifestFiles {
+        $b = [IO.File]::ReadAllBytes($_.FullName)
+        $lf = 0; $crlf = 0
+        for ($i = 0; $i -lt $b.Length; $i++) {
+            if ($b[$i] -ne 10) { continue }
+            if ($i -gt 0 -and $b[$i - 1] -eq 13) { $crlf++ } else { $lf++ }
+        }
+        $crlf | Should -BeGreaterThan 0
+        $lf   | Should -Be 0
+    }
+
+    It 'sync_scripts.py を走らせても manifest が変化しない（冪等）' {
+        # sync_scripts.py と scoop の checkhashes.ps1 が行末を潰し合い、
+        # 実質的な変更が無いのに全 manifest へ差分が出続けた実績がある。
+        # 片方を直しても、もう一方が将来変わればまた再発するのでテストで固定する
+        $repo   = Split-Path $PSScriptRoot
+        $before = @{}
+        foreach ($f in $script:ManifestFiles) { $before[$f.FullName] = [IO.File]::ReadAllBytes($f.FullName) }
+
+        & python3 (Join-Path $repo 'tests\tools\sync_scripts.py') *> $null
+        $LASTEXITCODE | Should -Be 0
+
+        $changed = @()
+        foreach ($f in $script:ManifestFiles) {
+            $now = [IO.File]::ReadAllBytes($f.FullName)
+            if (-not [Linq.Enumerable]::SequenceEqual([byte[]]$before[$f.FullName], [byte[]]$now)) {
+                $changed += $f.Name
+            }
+        }
+        ($changed -join ', ') | Should -BeNullOrEmpty
     }
 
     It '共通スクリプトが読み取り専用の自動変数へ代入していない' {
