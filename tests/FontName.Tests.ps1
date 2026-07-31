@@ -91,4 +91,34 @@ Describe 'Get-FontFullName' {
         $p = New-BrokenFont 'synthetic.ttf' $b
         Get-FontFullName $p | Should -Be 'Test Font'
     }
+
+    It 'name テーブルに nameID 4 が無ければ例外（ファイル名フォールバック禁止の担保）' {
+        # 上の合成 sfnt テストと同じ形状で、name レコードの nameID だけを
+        # 4 (Full font name) ではなく 1 (Font Family name) にする。
+        # length/ttcf/テーブルディレクトリ走査/name テーブル特定/文字列オフセット境界
+        # まではすべて正常に通過し、最後の「nameID 4 が無い」チェックだけで落ちることを確認する
+        $b = New-Object byte[] 64
+        $b[0] = 0; $b[1] = 1; $b[2] = 0; $b[3] = 0        # sfnt version 1.0
+        $b[4] = 0; $b[5] = 1                              # numTables = 1
+        $b[6] = 0; $b[7] = 16                             # searchRange = 16 (numTables=1 のとき)
+        $b[8] = 0; $b[9] = 0                               # entrySelector = 0
+        $b[10] = 0; $b[11] = 0                             # rangeShift = 0
+        [Text.Encoding]::ASCII.GetBytes('name').CopyTo($b, 12)   # table tag
+        $b[16] = 0x01; $b[17] = 0xA1; $b[18] = 0x05; $b[19] = 0xE9   # checksum（nameID=1 に変えたぶん上の合成テストから差し替え済みの実値）
+        $b[20] = 0; $b[21] = 0; $b[22] = 0; $b[23] = 28   # table offset -> name テーブルは 28 から
+        $b[24] = 0; $b[25] = 0; $b[26] = 0; $b[27] = 36   # table length = 36 バイト（パーサーは未使用だが正しい sfnt にするため設定）
+        $b[28] = 0; $b[29] = 0                            # name table format = 0
+        $b[30] = 0; $b[31] = 1                            # name record count = 1
+        $b[32] = 0; $b[33] = 18                           # stringOffset（レコード 1 件ぶん = 6 + 12）
+        $b[34] = 0; $b[35] = 3                            # platformID = 3 (Windows)
+        $b[36] = 0; $b[37] = 1                            # encodingID
+        $b[38] = 4; $b[39] = 9                            # languageID = 0x0409
+        $b[40] = 0; $b[41] = 1                            # nameID = 1 (Font Family name, NOT 4)
+        $strBytes = [Text.Encoding]::BigEndianUnicode.GetBytes('Test Font')
+        $b[42] = 0; $b[43] = [byte]$strBytes.Length       # length
+        $b[44] = 0; $b[45] = 0                            # offset（文字列格納域からの相対位置）
+        $strBytes.CopyTo($b, 46)
+        $p = New-BrokenFont 'synthetic-no-nameid4.ttf' $b
+        { Get-FontFullName $p } | Should -Throw '*nameID 4 が無い*'
+    }
 }
