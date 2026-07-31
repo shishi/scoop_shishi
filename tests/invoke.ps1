@@ -9,4 +9,7 @@ $r = Invoke-Pester -Path $Dir -PassThru -Output Detailed
 # FailedCount を返す実装では終了コード 0 になって壊れたテストが黙って通る
 $failed = $r.FailedCount + $r.FailedBlocksCount + $r.FailedContainersCount
 if ($failed -eq 0 -and $r.Result -ne 'Passed') { $failed = 1 }
-exit $failed
+
+# 件数をそのまま返さない。Windows の終了コードは 256 で折り返すので、
+# 失敗が 256 の倍数のときに成功と区別できなくなる
+exit ([int]($failed -gt 0))
