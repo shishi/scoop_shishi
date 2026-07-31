@@ -97,39 +97,105 @@
 }
 
 AfterAll {
-    Reset-Case
+    # 各手順を独立した try/catch で囲む。1 つが終了エラーを投げても残りの手順は
+    # 必ず走らせる。素直に並べると、途中の 1 行（例: scoop uninstall が投げる
+    # DirectoryNotFoundException）で以降がすべて飛び、退避した本物のフォントや
+    # レジストリを戻せないまま環境が汚れて残る事例が実際に起きた。
+    # ただし黙って Write-Host するだけだと失敗が握りつぶされて見た目は green の
+    # まま終わるので、失敗は $failures に集めて最後に throw し、Pester にも
+    # 失敗として伝える
+    $failures = New-Object Collections.ArrayList
 
-    # 故障注入がディレクトリに置き換えた配置先を片付ける
+    # 退避（$script:Vault）は「本物の元ファイル・レジストリ・退避ディレクトリ」の
+    # 最後の控えなので、以下の復元・後始末がすべて成功したときだけ消す。途中で
+    # 1 つでも失敗したら Vault は残し、次回に手で救出できるようにする（P1 対応）。
+    # ここで宣言するのは、下の「配置先ディレクトリの後始末」も対象に含めるため。
+    # これが未削除のまま残っていると、続く Copy-Item がディレクトリの「中へ」書き込んで
+    # 見かけ上は成功し、元がファイルだったことを示す唯一の控え（Vault）を
+    # 後始末に成功したと誤認して消してしまう
+    $restoreOk = $true
+
+    try { Reset-Case } catch { [void]$failures.Add("Reset-Case: $_"); Write-Host "Reset-Case に失敗: $_" -Foreground Red }
+
+    # Reset-Case は $ErrorActionPreference='Stop' の下で複数手順を素直に並べただけの
+    # 関数で、内部で 1 行が終了エラーを投げると（例: scoop uninstall が途中で失敗する）
+    # 以降の自身の後始末（$script:Touched の削除など）が飛ぶ。ここは Reset-Case の
+    # 成否に関わらず独立して効く安全網として、配置先に残っている物（ファイルでも
+    # 故障注入のディレクトリでも）を丸ごと片付ける
     foreach ($n in $script:Touched) {
-        $p = Join-Path $script:FontDir $n
-        if (Test-Path $p -PathType Container) { Remove-Item -LiteralPath $p -Recurse -Force }
+        try {
+            $p = Join-Path $script:FontDir $n
+            if (Test-Path $p) { Remove-Item -LiteralPath $p -Recurse -Force }
+        } catch {
+            $restoreOk = $false; [void]$failures.Add("配置先の後始末($n): $_")
+            Write-Host "配置先($n)の後始末に失敗: $_" -Foreground Red
+        }
     }
 
-    # 退避しておいた実体とレジストリ値を戻す
+    # 退避しておいた実体を戻す。1 件が失敗しても他のファイルの復元を止めない
+    # ように、foreach の外ではなく各要素ごとに try/catch を置く
     foreach ($n in $script:VaultedFiles) {
-        Copy-Item -LiteralPath (Join-Path $script:Vault $n) -Destination (Join-Path $script:FontDir $n) -Force
+        try {
+            Copy-Item -LiteralPath (Join-Path $script:Vault $n) -Destination (Join-Path $script:FontDir $n) -Force
+        } catch {
+            $restoreOk = $false; [void]$failures.Add("退避ファイルの復元($n): $_")
+            Write-Host "退避ファイル($n)の復元に失敗: $_" -Foreground Red
+        }
     }
+
     foreach ($n in $script:VaultedDirs) {
-        $dest = Join-Path $script:FontDir $n
-        if (Test-Path $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
-        Copy-Item -LiteralPath (Join-Path $script:Vault $n) -Destination $dest -Recurse -Force
+        try {
+            $dest = Join-Path $script:FontDir $n
+            if (Test-Path $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
+            Copy-Item -LiteralPath (Join-Path $script:Vault $n) -Destination $dest -Recurse -Force
+        } catch {
+            $restoreOk = $false; [void]$failures.Add("退避ディレクトリの復元($n): $_")
+            Write-Host "退避ディレクトリ($n)の復元に失敗: $_" -Foreground Red
+        }
     }
+
     foreach ($k in $script:VaultedReg.Keys) {
-        New-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
-            -Name $k -Value $script:VaultedReg[$k] -Force | Out-Null
+        try {
+            New-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
+                -Name $k -Value $script:VaultedReg[$k] -Force | Out-Null
+        } catch {
+            $restoreOk = $false; [void]$failures.Add("退避レジストリ値の復元($k): $_")
+            Write-Host "退避レジストリ値($k)の復元に失敗: $_" -Foreground Red
+        }
     }
-    # 割り込まれた別の試行の退避ディレクトリがあれば、消える前の状態へ戻す。
-    # これが無いと、このスイート自身は入っていなかった第三者の復旧データを消して終わる
-    if ($script:HadBackupDir) {
-        if (Test-Path $script:Backup) { Remove-Item -LiteralPath $script:Backup -Recurse -Force }
-        Copy-Item -LiteralPath $script:BackupVault -Destination $script:Backup -Recurse -Force
+
+    try {
+        # 割り込まれた別の試行の退避ディレクトリがあれば、消える前の状態へ戻す。
+        # これが無いと、このスイート自身は入っていなかった第三者の復旧データを消して終わる
+        if ($script:HadBackupDir) {
+            if (Test-Path $script:Backup) { Remove-Item -LiteralPath $script:Backup -Recurse -Force }
+            Copy-Item -LiteralPath $script:BackupVault -Destination $script:Backup -Recurse -Force
+        }
+    } catch { $restoreOk = $false; [void]$failures.Add("退避ディレクトリ(backupDir)の復元: $_"); Write-Host "退避ディレクトリ(backupDir)の復元に失敗: $_" -Foreground Red }
+
+    try {
+        # Vault は上の復元が 1 つでも失敗していたら消さない。本物の元ファイルが
+        # ここにしか残っていない可能性があるので、失敗を握りつぶして消してしまうと
+        # 復旧手段を自分で断つことになる
+        if ($restoreOk -and (Test-Path $script:Vault)) { Remove-Item -LiteralPath $script:Vault -Recurse -Force }
+        elseif (-not $restoreOk) { Write-Host "復元に失敗があったため Vault を残す: $script:Vault" -Foreground Yellow }
+    } catch { [void]$failures.Add("Vault の削除: $_"); Write-Host "Vault の削除に失敗: $_" -Foreground Red }
+
+    try {
+        # このスイートに入る前に入っていたなら入れ直す
+        if ($script:WasInstalled) { scoop install $script:Manifest 2>&1 | Out-Null }
+    } catch { [void]$failures.Add("テスト前の状態への再インストール: $_"); Write-Host "テスト前の状態への再インストールに失敗: $_" -Foreground Red }
+
+    if (-not $script:WasInstalled) {
+        try { Assert-FontEnvRestored -Before $script:Before }
+        catch { [void]$failures.Add("環境の復元検証: $_"); Write-Host "環境が元に戻っていない: $_" -Foreground Red }
     }
-    if (Test-Path $script:Vault) { Remove-Item -LiteralPath $script:Vault -Recurse -Force }
 
-    # このスイートに入る前に入っていたなら入れ直す
-    if ($script:WasInstalled) { scoop install $script:Manifest 2>&1 | Out-Null }
-
-    if (-not $script:WasInstalled) { Assert-FontEnvRestored -Before $script:Before }
+    # 個々の手順は握りつぶさずに進めたが、1 つでも失敗していれば AfterAll 自体は
+    # 失敗として報告する。黙って green にすると後始末の失敗に誰も気づけない
+    if ($failures.Count -gt 0) {
+        throw ("後始末で失敗した手順がある:`n  " + ($failures -join "`n  "))
+    }
 }
 
 Describe '既存ファイルとの衝突' {
@@ -148,14 +214,18 @@ Describe '既存ファイルとの衝突' {
 
     It 'Windows 標準の名前で登録済みなら上書きし、uninstall で元の値へ戻る' {
         New-DecoyFont $script:Target | Out-Null
+        # installer が書く値（$script:Target）と同じ値を仕込むと、レジストリ処理が
+        # 完全な no-op でも before/after/expected が全部同じになり、テストが
+        # 何も検証できなくなる。installer が書く値とは違う番兵パスを仕込む
+        $sentinel = Join-Path $script:FontDir 'Sentinel-Not-BIZUDGothic.ttf'
         New-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
-            -Name $script:RegName -Value $script:Target -Force | Out-Null
+            -Name $script:RegName -Value $sentinel -Force | Out-Null
 
         scoop install $script:Manifest 2>&1 | Out-Null
         Get-FontRegValue -Name $script:RegName | Should -Be $script:Target
 
         scoop uninstall biz-udgothic 2>&1 | Out-Null
-        Get-FontRegValue -Name $script:RegName | Should -Be $script:Target
+        Get-FontRegValue -Name $script:RegName | Should -Be $sentinel
     }
 
     It 'install 後に第三者が差し替えたファイルは uninstall で消さない' {
@@ -180,8 +250,12 @@ Describe '既存ファイルとの衝突' {
 Describe '変更途中の失敗' {
     BeforeEach { Reset-Case }
 
-    It 'コピーに失敗すると、それまでの変更が巻き戻る' {
-        # 配置先と同名のディレクトリを作っておくと Copy-Item が必ず失敗する
+    It '配置先にディレクトリがあると下調べの検知で落ち、1 ファイルも変更されない（巻き戻しの経路は通らない）' {
+        # 配置先と同名のディレクトリを作っておくと、installer は下調べ段階
+        # （どのファイルも変更する前）でこれを検知して例外を投げる。この経路は
+        # 「1 ファイルも変更しないうちに終わる」ことを守るものであり、catch 内の
+        # 巻き戻し（退避からの復元・ハッシュ検証・レジストリの戻し）は通らない。
+        # 巻き戻し自体を検証するテストは下の 'Move-Item' の項を見よ
         $blocker = Join-Path $script:FontDir 'BIZUDPGothic-Regular.ttf'
         if (Test-Path $blocker) { Remove-Item -LiteralPath $blocker -Force }
         New-Item $blocker -ItemType Directory -Force | Out-Null
@@ -203,5 +277,74 @@ Describe '変更途中の失敗' {
         } finally {
             if (Test-Path $blocker) { Remove-Item -LiteralPath $blocker -Recurse -Force }
         }
+    }
+
+    It '最後の配置先だけ書き込みを塞ぐと Move-Item で失敗し、先行する 3 ファイルが囮の内容へ巻き戻る' {
+        # 下調べのディレクトリ検知は「1 ファイルも変更しないうちに落ちる」経路であり、
+        # catch 内の巻き戻し（退避からの復元・ハッシュ検証・レジストリの戻し）を
+        # 1 行も通らない。この経路を実際に通すには、変更が始まったあとで失敗させる
+        # 必要がある。4 ファイルすべてに囮を置いたうえで、最後に処理される配置先
+        # （ファイル名の並びで最後になる BIZUDPGothic-Regular.ttf）だけ書き込みを防ぐ
+        # ハンドルで掴んでおく。先行する 3 ファイルは実際に置き換わり、最後で失敗し、
+        # 巻き戻しが走って 3 ファイルとも囮の内容へ戻るはず。
+        #
+        # 完全排他（'ReadWrite', 'None'）は実測では狙いどおりに動かない。installer は
+        # 下調べ段階で「配置先に元々あったファイルのハッシュ」を Get-FileHash で読む
+        # （退避の検証に使うため、変更前に計画へ保存する）。'None' で読み取りも塞ぐと、
+        # この下調べの時点で例外になり、1 ファイルも変更されないまま落ちる。これは
+        # 上のディレクトリ検知テストと同じ経路であり、巻き戻しを一切通らない。
+        # 読み取りは許可し書き込みだけ拒否する（'Read', 'Read'）と、下調べの読み取りと
+        # 退避コピー（どちらも読み取りのみ）は素通りし、最後の Move-Item（配置先の
+        # 削除・置換に書き込み権限が要る）だけが確実に失敗する。実測で確認済み。
+        #
+        # なお installer は Get-ChildItem の列挙順で処理するため、順序自体は
+        # ドキュメント化された保証ではない。ロックした BIZUDPGothic-Regular.ttf が
+        # 実際に何番目に処理されるかに関わらず、以下の検証は「ロックした 1 件を除く
+        # 残りが何件でも、退避されていればその中身は囮のハッシュと一致する」ことだけを
+        # 見る。これなら列挙順が変わっても壊れず、むしろ「ロックした 1 件より前に
+        # 処理された分は実際に置き換わってから正しく巻き戻った」ことを検証できる
+        $decoyHashes = @{}
+        foreach ($n in $script:Touched) {
+            $decoyHashes[$n] = New-DecoyFont (Join-Path $script:FontDir $n)
+        }
+
+        $lockedPath = Join-Path $script:FontDir 'BIZUDPGothic-Regular.ttf'
+        $handle = [IO.File]::Open($lockedPath, 'Open', 'Read', 'Read')
+        try {
+            $caught = $null
+            try { scoop install $script:Manifest 2>&1 | Out-Null } catch { $caught = $_ }
+            $caught | Should -Not -BeNullOrEmpty
+            # 何でも「例外が出た」だけで OK にすると、無関係の理由（ダウンロード失敗等）で
+            # install が早期に落ちただけでも通ってしまい、下の「巻き戻った」検証が
+            # 何も保証しないまま素通りしかねない。ロックした配置先を Move-Item が
+            # 掴み損ねて失敗したことまで確認する（実測: FullyQualifiedErrorId は
+            # MoveFileInfoItemIOError,Microsoft.PowerShell.Commands.MoveItemCommand、
+            # TargetObject はロックしたパスそのもの）
+            $caught.FullyQualifiedErrorId | Should -Match 'MoveItemCommand'
+            "$($caught.TargetObject)" | Should -Be $lockedPath
+        } finally {
+            $handle.Close()
+        }
+
+        # 巻き戻しが単に「何もしなかった」のではなく、実際に置き換えてから
+        # 戻したことの証拠。退避（backup）には置き換える直前の内容、つまり
+        # 囮の内容が控えられているはず。installer は Get-ChildItem の列挙順で
+        # 処理するため、ロックした 1 件が実際に何番目に処理されるかはドキュメント化
+        # された保証ではない。列挙順が変わっても壊れないよう、件数を決め打ちせず
+        # 「実際に退避が作られたもの」を動的に見て、1 件以上あることだけを必須にする
+        # （0 件なら、ロックした 1 件が最初に処理されて 1 ファイルも変更されずに
+        # 落ちたことになり、それはこのテストが証明したい経路ではない）
+        $others = @($script:Touched | Where-Object { $_ -ne 'BIZUDPGothic-Regular.ttf' })
+        $backedUp = @($others | Where-Object { Test-Path (Join-Path $script:Backup $_) })
+        $backedUp.Count | Should -BeGreaterThan 0
+        foreach ($n in $backedUp) {
+            (Get-FileHash -LiteralPath (Join-Path $script:Backup $n)).Hash | Should -Be $decoyHashes[$n]
+        }
+
+        # 配置先自体も、置き換え→巻き戻しを経て囮の内容に戻っていること
+        foreach ($n in $script:Touched) {
+            (Get-FileHash -LiteralPath (Join-Path $script:FontDir $n)).Hash | Should -Be $decoyHashes[$n]
+        }
+        Get-FontRegValue -Name $script:RegName | Should -BeNullOrEmpty
     }
 }
