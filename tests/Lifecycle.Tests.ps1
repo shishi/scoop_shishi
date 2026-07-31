@@ -3,20 +3,24 @@
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\biz-udgothic.json'
     $script:FontDir  = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
-    $script:Expected = @('BIZUDGothic-Bold.ttf', 'BIZUDGothic-Regular.ttf',
-                         'BIZUDPGothic-Bold.ttf', 'BIZUDPGothic-Regular.ttf')
     # このスイートに入る前の状態を覚えておく。Task 10 以降は 16 個とも入っているので、
-    # 無条件に uninstall して終わると環境を壊す
+    # 無条件に uninstall して終わると環境を壊す。
+    # スナップショットは強制 uninstall より「前」に取る。後で取ると
+    # 「入っていた状態へ戻せたか」を検証する基準が失われる
+    $script:TrueBefore   = Get-FontEnvSnapshot
     $script:WasInstalled = ((scoop list biz-udgothic 6>$null | Out-String) -match 'biz-udgothic')
     scoop uninstall biz-udgothic 2>&1 | Out-Null
-    $script:Before   = Get-FontEnvSnapshot   # uninstall 後の状態を基準にする
+    $script:Before = Get-FontEnvSnapshot   # 「入っていない」状態の基準
 
-    $script:InstallOutput = & scoop install $script:Manifest 2>&1 | Out-String
+    scoop install $script:Manifest 2>&1 | Out-Null
 }
 
 AfterAll {
     scoop uninstall biz-udgothic 2>&1 | Out-Null
     if ($script:WasInstalled) { scoop install $script:Manifest 2>&1 | Out-Null }
+    # 入れ直した結果が元どおりかまで確かめる。試みるだけでは、
+    # 再インストールが冪等でなかったときに緑のまま環境がずれる
+    Assert-FontEnvRestored -Before $script:TrueBefore
 }
 
 Describe 'biz-udgothic のライフサイクル' {
