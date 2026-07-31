@@ -54,7 +54,10 @@ def apply(path, blocks):
     # 途中で中断されると切り詰められた JSON が残り、その manifest では
     # scoop install が通らなくなる。一時ファイルへ書いてから置換する
     tmp = path + '.tmp'
-    with io.open(tmp, 'w', encoding='utf-8', newline='\n') as f:
+    # 改行は CRLF。scoop の checkhashes.ps1 / checkver.ps1 が manifest を書き戻すと
+    # CRLF になるため、こちらを LF にすると両者が毎回相手の行末を潰し合い、
+    # 実質的な変更が無いのに全 manifest へ差分が出続ける(実測)
+    with io.open(tmp, 'w', encoding='utf-8', newline='\r\n') as f:
         f.write(out)
     os.replace(tmp, path)
 
