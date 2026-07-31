@@ -1,13 +1,15 @@
 {
-    "version": "1.051",
-    "description": "BIZ UDGothic / BIZ UDPGothic — モリサワのユニバーサルデザインフォント",
-    "homepage": "https://github.com/googlefonts/morisawa-biz-ud-gothic",
+    "version": "2.2.0",
+    "description": "UDEV Gothic NF — UDEV Gothic に Nerd Fonts を合成したプログラミングフォント",
+    "homepage": "https://github.com/yuru7/udev-gothic",
     "license": "OFL-1.1",
-    "url": "https://github.com/googlefonts/morisawa-biz-ud-gothic/releases/download/v1.051/BIZUDGothic.zip",
-    "hash": "30692df621b92df13b88f1360aed1ab6ae50de441bce751a396c6439045cd759",
+    "url": "https://github.com/yuru7/udev-gothic/releases/download/v2.2.0/UDEVGothic_NF_v2.2.0.zip",
+    "hash": "45faeef7b5d8bc591bcc5887a2ca0c5fb9028066f18a5a52cd6f10b7d655ba37",
+    "extract_dir": "UDEVGothic_NF_v2.2.0",
     "checkver": "github",
     "autoupdate": {
-        "url": "https://github.com/googlefonts/morisawa-biz-ud-gothic/releases/download/v$version/BIZUDGothic.zip"
+        "url": "https://github.com/yuru7/udev-gothic/releases/download/v$version/UDEVGothic_NF_v$version.zip",
+        "extract_dir": "UDEVGothic_NF_v$version"
     },
     "installer": {
         "script": [

@@ -1,13 +1,18 @@
 {
-    "version": "1.051",
-    "description": "BIZ UDGothic / BIZ UDPGothic — モリサワのユニバーサルデザインフォント",
-    "homepage": "https://github.com/googlefonts/morisawa-biz-ud-gothic",
+    "version": "0.0.2",
+    "description": "BIZTER — BIZ UDPゴシックと Inter を合成した UI 向けフォント",
+    "homepage": "https://github.com/yuru7/BIZTER",
     "license": "OFL-1.1",
-    "url": "https://github.com/googlefonts/morisawa-biz-ud-gothic/releases/download/v1.051/BIZUDGothic.zip",
-    "hash": "30692df621b92df13b88f1360aed1ab6ae50de441bce751a396c6439045cd759",
-    "checkver": "github",
+    "url": "https://github.com/yuru7/BIZTER/releases/download/v0.0.2/BIZTER_v0.0.2.zip",
+    "hash": "288b32b8a8d01892f358e468cd95991a6a203d57c2fdbe1ba4bb0a58f740b455",
+    "extract_dir": "BIZTER_v0.0.2",
+    "checkver": {
+        "url": "https://github.com/yuru7/BIZTER/releases.atom",
+        "re": "releases/tag/v([\\d.]+)"
+    },
     "autoupdate": {
-        "url": "https://github.com/googlefonts/morisawa-biz-ud-gothic/releases/download/v$version/BIZUDGothic.zip"
+        "url": "https://github.com/yuru7/BIZTER/releases/download/v$version/BIZTER_v$version.zip",
+        "extract_dir": "BIZTER_v$version"
     },
     "installer": {
         "script": [

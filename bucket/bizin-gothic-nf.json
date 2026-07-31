@@ -1,13 +1,15 @@
 {
-    "version": "1.051",
-    "description": "BIZ UDGothic / BIZ UDPGothic — モリサワのユニバーサルデザインフォント",
-    "homepage": "https://github.com/googlefonts/morisawa-biz-ud-gothic",
+    "version": "0.0.4",
+    "description": "Bizin Gothic NF — Bizin Gothic に Nerd Fonts を合成したプログラミングフォント（Discord 版を含む）",
+    "homepage": "https://github.com/yuru7/bizin-gothic",
     "license": "OFL-1.1",
-    "url": "https://github.com/googlefonts/morisawa-biz-ud-gothic/releases/download/v1.051/BIZUDGothic.zip",
-    "hash": "30692df621b92df13b88f1360aed1ab6ae50de441bce751a396c6439045cd759",
+    "url": "https://github.com/yuru7/bizin-gothic/releases/download/v0.0.4/BizinGothicNF_v0.0.4.zip",
+    "hash": "027982bfbd535d411f03f7bf603545493516eb51a98b49616053e926b9211215",
+    "extract_dir": "BizinGothicNF_v0.0.4",
     "checkver": "github",
     "autoupdate": {
-        "url": "https://github.com/googlefonts/morisawa-biz-ud-gothic/releases/download/v$version/BIZUDGothic.zip"
+        "url": "https://github.com/yuru7/bizin-gothic/releases/download/v$version/BizinGothicNF_v$version.zip",
+        "extract_dir": "BizinGothicNF_v$version"
     },
     "installer": {
         "script": [
