@@ -8,7 +8,6 @@ import io
 import json
 import os
 import re
-import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPEC = os.path.join(REPO, 'docs', 'superpowers', 'specs',
@@ -51,8 +50,13 @@ def apply(path, blocks):
     manifest['pre_uninstall'] = blocks['pre_uninstall']
     manifest.setdefault('uninstaller', {})['script'] = blocks['uninstaller']
     out = json.dumps(manifest, ensure_ascii=False, indent=4) + '\n'
-    with io.open(path, 'w', encoding='utf-8', newline='\n') as f:
+    # 直接上書きしない。このツールは 16 ファイルに対して繰り返し走るので、
+    # 途中で中断されると切り詰められた JSON が残り、その manifest では
+    # scoop install が通らなくなる。一時ファイルへ書いてから置換する
+    tmp = path + '.tmp'
+    with io.open(tmp, 'w', encoding='utf-8', newline='\n') as f:
         f.write(out)
+    os.replace(tmp, path)
 
 
 FONT_MANIFESTS = {
