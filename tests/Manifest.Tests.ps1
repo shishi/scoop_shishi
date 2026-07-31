@@ -68,4 +68,14 @@ Describe 'manifest の静的検査' {
         $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
         ($head -join ',') | Should -Not -Be '239,187,191'
     }
+
+    It '共通スクリプトが読み取り専用の自動変数へ代入していない' {
+        # $pid への代入で全 manifest が動かなくなった実績がある。
+        # 関数スコープの中でも Cannot overwrite variable PID で落ちる
+        $reserved = 'pid', 'host', 'error', 'true', 'false', 'null', 'pshome', 'shellid', 'executioncontext'
+        $j = $script:Fonts[0].Json
+        $all = (@($j.installer.script) + @($j.pre_uninstall) + @($j.uninstaller.script)) -join "`n"
+        $bad = @($reserved | Where-Object { $all -match ('\$' + $_ + '\s*=[^=]') })
+        ($bad -join ', ') | Should -BeNullOrEmpty
+    }
 }
