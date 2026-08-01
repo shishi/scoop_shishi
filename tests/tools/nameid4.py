@@ -10,6 +10,17 @@ import struct
 import sys
 
 
+class UnsupportedEncoding(Exception):
+    """レコードは見つかったが、デコード方式が未対応(想定外の encoding ID)。
+
+    'nameID が無い' (ValueError) とは意味が違う。family_name() は「nameID 16
+    が無ければ nameID 1 にフォールバックする」ために ValueError だけを捕まえる
+    設計なので、これを ValueError から独立させないと、対応していないだけの
+    レコードを「無い」と誤認してフォールバックしてしまい、fail-fast の意図が
+    壊れる。
+    """
+
+
 def tables(data):
     if len(data) < 12:
         raise ValueError('短すぎる')
@@ -53,13 +64,25 @@ def name_record(path, want):
         rank = 0 if (pid == 3 and lid == 0x409) else 1 if pid == 3 else 2 if pid == 0 else 9
         if rank >= best_rank:
             continue
-        best = (pid, noff, length)
+        best = (pid, eid, noff, length)
         best_rank = rank
     if best is None:
         raise ValueError('nameID %d が無い' % want)
-    pid, noff, length = best
+    pid, eid, noff, length = best
     raw = data[str_base + noff:str_base + noff + length]
-    encoding = 'mac_roman' if pid == 1 else 'utf-16-be'
+    if pid == 1:
+        # Macintosh プラットフォームは encoding ID ごとに文字コードが変わる
+        # (0=Roman, 1=Japanese, ... 他多数)。'mac_roman' でデコードできるのは
+        # eid == 0 の場合だけ。この 16 本のフォントを実測した限り platform 1 の
+        # レコードは (eid, lid) = (0, 0) しか存在しない
+        # (biz-udgothic 〜 udev-gothic-nf の全 .ttf/.otf を走査して確認済み)。
+        # 他の eid が来たら未検証の文字コードなので、黙って誤デコードするより
+        # ここで止める
+        if eid != 0:
+            raise UnsupportedEncoding('platform 1 の未対応 encoding ID: %d' % eid)
+        encoding = 'mac_roman'
+    else:
+        encoding = 'utf-16-be'
     return raw.decode(encoding)
 
 
