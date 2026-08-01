@@ -3,3 +3,7 @@ tests/.modules/
 
 # 移行スクリプトは手元固有のパスを含むので公開 bucket に入れない
 migration/
+
+# Python のバイトコードキャッシュ。ソースが変わるたびに陳腐化するので追跡しない
+__pycache__/
+*.pyc
