@@ -4,6 +4,21 @@
     $script:FontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
     $script:New     = Join-Path $script:Repo 'bucket\hackgen.json'
 
+    # 「関係の無いフォントが影響を受けていない」で hackgen 自身の変更を除外するための
+    # 正確な 4 件。hackgen-nf は "HackGen Console NF *" という、"HackGen" で始まる
+    # 別の登録名を持つため、ワイルドカード -notlike 'HackGen*' で除外すると
+    # hackgen-nf まで一緒に隠れてしまう(全 16 manifest が同じ共有スクリプトを使う
+    # ため、hackgen の更新で hackgen-nf が巻き添えを食う不具合こそこのテストが
+    # 捕まえるべきシナリオ)。ファイル名→登録名の正本は
+    # tests/fixtures/expected-regnames.json なのでそこから読む
+    $fixture = Get-Content (Join-Path $PSScriptRoot 'fixtures\expected-regnames.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $script:HackgenOwnRegNames = @(
+        $fixture.regnames.'HackGen-Bold.ttf',
+        $fixture.regnames.'HackGen-Regular.ttf',
+        $fixture.regnames.'HackGenConsole-Bold.ttf',
+        $fixture.regnames.'HackGenConsole-Regular.ttf'
+    )
+
     # scoop list <query> は部分一致するため "hackgen" は "hackgen-nf" にも
     # マッチしてしまう(実測: scoop list hackgen で両方の行が返る)。行頭を
     # 空白で区切って厳密に "hackgen" だけを見る
@@ -123,10 +138,12 @@ Describe '旧版から新版への更新' {
     }
 
     It '関係の無いフォントが影響を受けていない' {
-        # 更新の前後で他ファミリの登録が変わっていないこと
+        # 更新の前後で他ファミリの登録が変わっていないこと。除外するのは
+        # hackgen 自身の 4 件のみ(HackGen Console NF * を含め、それ以外は
+        # すべて比較対象に残す)
         $now = Get-FontEnvSnapshot
-        $others = @($now.Registry.Keys | Where-Object { $_ -notlike 'HackGen*' })
-        $before = @($script:Before.Registry.Keys | Where-Object { $_ -notlike 'HackGen*' })
+        $others = @($now.Registry.Keys | Where-Object { $_ -notin $script:HackgenOwnRegNames })
+        $before = @($script:Before.Registry.Keys | Where-Object { $_ -notin $script:HackgenOwnRegNames })
         Compare-Object $before $others | Should -BeNullOrEmpty
     }
 
