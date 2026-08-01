@@ -32,13 +32,33 @@ Describe 'レジストリのキー名' {
         # で実ファイルを直接読み込ませ、GDI+ 自身のパーサーが認識するファミリ名の
         # 集合で検証する方式に変えた(ファイル破損の検出という目的は保ったまま、
         # システムのフォントキャッシュ状態に依存しない)。
-        Add-Type -AssemblyName System.Drawing
-        $pfc = New-Object System.Drawing.Text.PrivateFontCollection
-        foreach ($p in $script:Expected.PSObject.Properties) {
-            $path = Join-Path $script:FontDir $p.Name
-            $pfc.AddFontFile($path)
-        }
-        $loaded = @($pfc.Families | Select-Object -ExpandProperty Name)
+        # PrivateFontCollection.AddFontFile はファイルをロックしたままにする。これは
+        # Dispose を呼んでも解放されない GDI+ 側の既知の挙動(実測。Dispose 後も
+        # ハンドルが残り、プロセスが終わるまで消えない)。Pester は全テストファイルを
+        # 同一プロセスで実行するため、ここでロックすると後続の Update.Tests.ps1 の
+        # uninstall が "used by another process" で失敗する(実測で確認済み)。
+        #
+        # 代替として AddMemoryFont(バイト列をアンマネージメモリへコピーしてから
+        # 読ませる方式)も試したが、Noto Sans JP / Noto Serif JP / NOTONOTO など
+        # 複数ファミリがロードされなくなった(実測)。AddFontFile と AddMemoryFont は
+        # GDI+ 内部で別経路を通り、後者は一部フォントを読めないため代替にならない。
+        #
+        # そこで検証そのものは Start-Job の子プロセスで行う。ロックは子プロセスの
+        # 生存期間に閉じ込められ、ジョブが終われば(子プロセスが終了すれば)解放される。
+        # 検証方法(AddFontFile で実ファイルを読ませる)は変えない
+        $names = @($script:Expected.PSObject.Properties | ForEach-Object { $_.Name })
+        $job = Start-Job -ScriptBlock {
+            param($fontDir, $names)
+            Add-Type -AssemblyName System.Drawing
+            $pfc = New-Object System.Drawing.Text.PrivateFontCollection
+            foreach ($n in $names) {
+                $pfc.AddFontFile((Join-Path $fontDir $n))
+            }
+            $result = @($pfc.Families | Select-Object -ExpandProperty Name)
+            $pfc.Dispose()
+            $result
+        } -ArgumentList $script:FontDir, $names
+        $loaded = @(Receive-Job -Job $job -Wait -AutoRemoveJob)
         $missing = @($script:Families | Where-Object { $_ -notin $loaded })
         ($missing -join ', ') | Should -BeNullOrEmpty
     }
