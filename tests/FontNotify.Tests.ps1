@@ -48,12 +48,26 @@ Describe 'install した直後にアプリからフォントが見えること' 
     }
 
     It 'install 後、新しいプロセスから見える' {
-        scoop install $script:Manifest 2>&1 | Out-Null
+        # install の成否を捨てると、install 自体がこけたときに
+        # 「フォントが見えない」という誤った症状で報告されてしまう。
+        # 先に install の成立を確かめてから見え方を見る
+        $out = (scoop install $script:Manifest 2>&1 | Out-String)
+        (scoop list $script:App 6>$null | Out-String) |
+            Should -Match ([regex]::Escape($script:App)) -Because "install が成立していない: $out"
+
         (& $script:IsFamilyVisible $script:Family) | Should -Be 'VISIBLE'
     }
 
     It 'uninstall 後、新しいプロセスから見えなくなる' {
-        scoop uninstall $script:App 2>&1 | Out-Null
+        # 直前の It が落ちていると、この It は install されていない状態で走って
+        # 素通りする。前提が揃っているかを自分で確かめてから進む
+        (scoop list $script:App 6>$null | Out-String) |
+            Should -Match ([regex]::Escape($script:App)) -Because '前の It が失敗している。この検証は成立しない'
+
+        $out = (scoop uninstall $script:App 2>&1 | Out-String)
+        (scoop list $script:App 6>$null | Out-String) |
+            Should -Not -Match ([regex]::Escape($script:App)) -Because "uninstall が成立していない: $out"
+
         (& $script:IsFamilyVisible $script:Family) | Should -Be 'MISSING'
     }
 }

@@ -26,24 +26,33 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wPa
 $notifyFonts = {
     param([string[]]$Add, [string[]]$Remove, [switch]$Broadcast)
     if (-not ('ScoopFont.Gdi' -as [type])) { return }
-    try {
+    # 1 パスの失敗で残りを巻き添えにしない。諦めた分は再ログオンまで
+    # 一覧に残るだけで、ファイルとレジストリは正しい状態のまま
+    foreach ($p in $Remove) {
         # Remove は「ファイルがまだ在るうち」に呼ぶこと。消した後だとパスを解決できず
-        # 即 false が返り、セッションのフォントテーブルに残り続ける
-        # (実測: 削除後は 0 回 true / 削除前なら 3 回 true を返して一覧から消えた)。
-        # 参照カウントは同一セッションで install のたびに増えるので、
-        # false になるまで外す。上限は暴走よけで、実際は数回で終わる
-        foreach ($p in $Remove) {
-            $n = 0
-            while ($n -lt 32 -and [ScoopFont.Gdi]::RemoveFontResourceW($p)) { $n++ }
-        }
-        foreach ($p in $Add) { [void][ScoopFont.Gdi]::AddFontResourceW($p) }
-        # HWND_BROADCAST = 0xffff / WM_FONTCHANGE = 0x1D / SMTO_ABORTIFHUNG = 2
-        if ($Broadcast) {
+        # 即 false が返り、セッションのフォントテーブルに残り続ける(実測)。
+        #
+        # 外すのは 1 回だけ。参照カウントはプロセスをまたいでセッション全体で共有される
+        # (実測: プロセス A が 2 回 Add して終了した後、別プロセス B の
+        # RemoveFontResourceW が 2 回 true を返した)。false になるまで外すと、
+        # 同じファイルを使っている第三者アプリの参照まで奪ってしまう
+        try { [void][ScoopFont.Gdi]::RemoveFontResourceW($p) }
+        catch { Write-Host "フォントの登録解除に失敗した: $p : $_" -Foreground Yellow }
+    }
+    foreach ($p in $Add) {
+        try {
+            if ([ScoopFont.Gdi]::AddFontResourceW($p) -eq 0) {
+                Write-Host "GDI へ追加できなかった: $p" -Foreground Yellow
+            }
+        } catch { Write-Host "フォントの登録に失敗した: $p : $_" -Foreground Yellow }
+    }
+    if ($Broadcast) {
+        # HWND_BROADCAST = 0xffff / WM_FONTCHANGE = 0x1D / SMTO_ABORTIFHUNG = 2。
+        # タイムアウトはウィンドウ 1 枚ごとに効くので、増減を済ませてから 1 回だけ配る
+        try {
             $res = [IntPtr]::Zero
             [void][ScoopFont.Gdi]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 3000, [ref]$res)
-        }
-    } catch {
-        Write-Host "フォントの削除通知に失敗した。再ログオンまで一覧に残る場合がある: $_" -Foreground Yellow
+        } catch { Write-Host "WM_FONTCHANGE の配信に失敗した: $_" -Foreground Yellow }
     }
 }
 
@@ -110,8 +119,16 @@ $touched = @($entries | Where-Object { $_.Phase -ne 'planned' -and $_.Phase -ne 
 # ファイルを消す「前」に GDI 側の登録を外す。消した後では RemoveFontResourceW が
 # パスを解決できず false を返すだけで、セッションのフォントテーブルに残り続ける。
 # 実測では uninstall 後もファイル・レジストリが消えているのにアプリからは
-# フォントが見えたままだった。復元されたファイルはループの後で登録し直す
-& $notifyFonts -Remove @($touched | ForEach-Object { $_.Dest })
+# フォントが見えたままだった。
+#
+# 対象は「今そこに在るのが自分の置いたファイル」に限る。install 後に第三者が
+# 置き換えた配置先まで外すと、相手の参照を奪うことになる(後のループでも
+# そういうファイルは「残す」と判断している)
+$mine = @($touched | Where-Object {
+    (Test-Path -LiteralPath $_.Dest -PathType Leaf) -and
+    (Get-FileHash -LiteralPath $_.Dest).Hash -eq $_.Hash
+} | ForEach-Object { $_.Dest })
+& $notifyFonts -Remove $mine
 
 foreach ($e in $entries) {
     if ($e.Phase -eq 'planned' -or $e.Phase -eq 'rolledback') { continue }
@@ -165,10 +182,10 @@ foreach ($e in $entries) {
     }
 }
 
-# 復元したファイルと、install 後に第三者が置き換えたので残したファイルを登録し直し、
-# 増減をまとめて 1 回だけ通知する。判断は「消したつもり」ではなく
-# 「配置先が実在するか」で行うので、途中で失敗した項目が混ざっていても実状態に揃う
-& $notifyFonts -Add @($touched | Where-Object { Test-Path $_.Dest } | ForEach-Object { $_.Dest }) -Broadcast
+# 登録し直すのは、さっき外した分のうちまだファイルが在るもの＝復元された元ファイルだけ。
+# 「実在する配置先すべて」にすると、外していないファイルにまで参照を足すことになる。
+# 判断を「消したつもり」ではなく実状態で行うので、途中で失敗した項目が混ざっていても揃う
+& $notifyFonts -Add @($mine | Where-Object { Test-Path -LiteralPath $_ }) -Broadcast
 
 # 記録は既にループ前で退役させてある。ここでは退避の後始末だけを判断する
 if ($unresolved.Count -eq 0) {

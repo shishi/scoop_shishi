@@ -139,11 +139,22 @@ Describe 'レジストリのキー名' {
         $checker = Join-Path $PSScriptRoot 'tools\check-hklm-names.py'
         # 標準入力へパイプしない。`$payload | & python3 ...` は稀に空の標準入力の
         # まま python を起動し、JSONDecodeError で理由不明に落ちる(実測: 同一
-        # コミットで 4 回中 1 回)。ファイル渡しならその競合が存在しない
+        # コミットで 5 回中 2 回)。この環境の python3 は scoop の shim
+        # (~/scoop/shims/python3.exe)で、実体を起動する中継プロセスが挟まる。
+        # ファイル渡しにすれば中継を跨ぐ標準入力そのものが不要になる
         $payloadPath = Join-Path ([IO.Path]::GetTempPath()) ("hklm-names-$([guid]::NewGuid()).json")
         try {
             $candidates | ConvertTo-Json -Compress -Depth 3 |
                 Set-Content -LiteralPath $payloadPath -Encoding UTF8
+            # 空配列だと ConvertTo-Json が $null を返し、Set-Content はファイルすら
+            # 作らない(実測)。そのまま渡すと python 側が FileNotFoundError で落ち、
+            # 「候補ゼロ」と「書き出し失敗」がまた区別できなくなる。ここで切り分ける
+            if (-not (Test-Path -LiteralPath $payloadPath)) {
+                throw "候補 $($candidates.Count) 件を書き出せなかった: $payloadPath が作られていない"
+            }
+            if ((Get-Item -LiteralPath $payloadPath).Length -eq 0) {
+                throw "候補 $($candidates.Count) 件の書き出しが空になった: $payloadPath"
+            }
             $resultJson = & python3 $checker $payloadPath
             if ($LASTEXITCODE -ne 0) { throw "check-hklm-names.py が失敗した: $resultJson" }
         } finally {

@@ -62,26 +62,36 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wPa
 $notifyFonts = {
     param([string[]]$Add, [string[]]$Remove, [switch]$Broadcast)
     if (-not ('ScoopFont.Gdi' -as [type])) { return }
-    try {
+    # 1 パスの失敗で残りを巻き添えにしない。諦めた分は再ログオンまで
+    # 反映されないだけで、ファイルとレジストリは正しい状態のまま
+    foreach ($p in $Remove) {
         # Remove は「ファイルがまだ在るうち」に呼ぶこと。消した後だとパスを解決できず
-        # 即 false が返り、セッションのフォントテーブルに残り続ける
-        # (実測: 削除後は 0 回 true / 削除前なら 3 回 true を返して一覧から消えた)。
-        # 参照カウントは同一セッションで install のたびに増えるので、
-        # false になるまで外す。上限は暴走よけで、実際は数回で終わる
-        foreach ($p in $Remove) {
-            $n = 0
-            while ($n -lt 32 -and [ScoopFont.Gdi]::RemoveFontResourceW($p)) { $n++ }
-        }
-        foreach ($p in $Add) { [void][ScoopFont.Gdi]::AddFontResourceW($p) }
+        # 即 false が返り、セッションのフォントテーブルに残り続ける(実測)。
+        #
+        # 外すのは 1 回だけ。参照カウントはプロセスをまたいでセッション全体で共有される
+        # (実測: プロセス A が 2 回 Add して終了した後、別プロセス B の
+        # RemoveFontResourceW が 2 回 true を返した)。false になるまで外すと、
+        # 同じファイルを使っている第三者アプリの参照まで奪ってしまう。
+        # install 1 回につき Add 1 回・uninstall 1 回につき Remove 1 回で釣り合う
+        try { [void][ScoopFont.Gdi]::RemoveFontResourceW($p) }
+        catch { Write-Host "フォントの登録解除に失敗した: $p : $_" -Foreground Yellow }
+    }
+    foreach ($p in $Add) {
+        # 戻り値 0 は失敗。捨てると「install は成功したのにフォントが使えない」が
+        # 無言で起きる。それはまさにこの通知が直そうとしている症状そのもの
+        try {
+            if ([ScoopFont.Gdi]::AddFontResourceW($p) -eq 0) {
+                Write-Host "GDI へ追加できなかった。再ログオンまで使えない場合がある: $p" -Foreground Yellow
+            }
+        } catch { Write-Host "フォントの登録に失敗した: $p : $_" -Foreground Yellow }
+    }
+    if ($Broadcast) {
         # HWND_BROADCAST = 0xffff / WM_FONTCHANGE = 0x1D / SMTO_ABORTIFHUNG = 2。
-        # 応答しないアプリで固まらないよう Timeout 付きで送る。
-        # 増減を一通り済ませてから 1 回だけ配る
-        if ($Broadcast) {
+        # タイムアウトはウィンドウ 1 枚ごとに効くので、増減を済ませてから 1 回だけ配る
+        try {
             $res = [IntPtr]::Zero
             [void][ScoopFont.Gdi]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 3000, [ref]$res)
-        }
-    } catch {
-        Write-Host "フォントの追加通知に失敗した。再ログオンまで反映されない場合がある: $_" -Foreground Yellow
+        } catch { Write-Host "WM_FONTCHANGE の配信に失敗した: $_" -Foreground Yellow }
     }
 }
 
@@ -169,6 +179,14 @@ try {
     # "Cannot find path ... because it does not exist" で失敗する)。ここで先に作る
     if (-not (Test-Path $regKey)) { New-Item -Path $regKey -Force | Out-Null }
 
+    # 上書きする配置先は、書き込む前に GDI の登録を外しておく。
+    # 参照カウントが 0 でないパスにファイルを被せても GDI は読み直さず、古い中身を
+    # 配り続ける(実測: パス P へ font A を Add してから P を font B で上書きし、
+    # もう一度 Add しても、別プロセスからは最後まで A のまま見えた)。
+    # ここを飛ばすと「ディスクもレジストリも新しいのにセッションだけ古い」状態になり、
+    # しかも検知する手立てが無い。まだ存在しない配置先は Remove しても何も起きない
+    & $notifyFonts -Remove @($plan | Where-Object { $_.HadDest } | ForEach-Object { $_.Dest })
+
     foreach ($e in $plan) {
         # 変更に入る前に印を付けて保存する。途中でプロセスが落ちても対象だと分かる
         $e.Phase = 'mutating'; & $saveState
@@ -201,8 +219,16 @@ try {
 
     # 巻き戻しでファイルを消す/元へ差し替える前に、GDI 側の登録を外しておく。
     # 消した後では RemoveFontResourceW がパスを解決できず、外れないまま残る。
-    # 巻き戻しの後で「まだ実在するもの」を登録し直して辻褄を合わせる
-    & $notifyFonts -Remove @($plan | Where-Object { $_.Phase -ne 'planned' } | ForEach-Object { $_.Dest })
+    #
+    # 対象は「Phase が planned でない」ではなく「今そこに在るのが自分の置いたファイル」。
+    # 印を付けた直後に退避の検証で落ちた場合など、mutating のままファイルには
+    # 一切触れていないエントリがある。そこに第三者の既存フォントがあると
+    # (Collision.Tests.ps1 が扱う状況)、触っていないファイルの登録まで剥がしてしまう
+    $mine = @($plan | Where-Object {
+        $_.Phase -ne 'planned' -and (Test-Path -LiteralPath $_.Dest -PathType Leaf) -and
+        (Get-FileHash -LiteralPath $_.Dest).Hash -eq $_.Hash
+    } | ForEach-Object { $_.Dest })
+    & $notifyFonts -Remove $mine
     for ($i = $plan.Count - 1; $i -ge 0; $i--) {     # 逆順で戻す
         $e = $plan[$i]
         if ($e.Phase -eq 'planned') { continue }
@@ -239,10 +265,11 @@ try {
     }
     & $saveState
 
-    # 復元されたファイルと、こちらが手を出さなかった第三者のファイルを登録し直す。
-    # 判断は Phase ではなく「配置先が実在するか」で行う。巻き戻しに失敗した項目が
-    # 混ざっていても、実際に残っているものだけが登録された状態になる
-    & $notifyFonts -Add @($plan | Where-Object { Test-Path $_.Dest } | ForEach-Object { $_.Dest }) -Broadcast
+    # 登録し直すのは、さっき外した分のうちまだファイルが在るものだけ。
+    # 「実在する配置先すべて」にすると、外していない第三者のファイルにまで
+    # 参照を足すことになる。その参照はセッション中ずっと残り、本来の持ち主が
+    # そのファイルを消した時点で二度と外せなくなる
+    & $notifyFonts -Add @($mine | Where-Object { Test-Path -LiteralPath $_ }) -Broadcast
 
     if ($failed.Count) {
         Write-Host "巻き戻しに失敗した項目がある。$statePath を見て手で復旧すること:" -Foreground Red

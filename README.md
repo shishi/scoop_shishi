@@ -70,10 +70,14 @@
 
 ⚠️ **このスイートは実機のフォント環境を書き換える。** 通常のユニットテストではない。
 
-- `Lifecycle` / `Collision` / `Update` は実際に scoop でフォントパッケージを
+- `Lifecycle` / `Collision` / `Update` / `FontNotify` は実際に scoop でフォントパッケージを
   uninstall・reinstall し、HKCU のレジストリ値を削除してから書き戻し、
   `%LOCALAPPDATA%\Microsoft\Windows\Fonts` を書き換え、検証用の一時 Scoop bucket を
   追加・削除する
+- `FontNotify` は install/uninstall の直後にフォントが OS から見えるか(見えなくなるか)を
+  新しいプロセスの DirectWrite で確かめる。検証に使うファミリは HKLM
+  (`C:\Windows\Fonts`)に同名の登録が無いものでなければならない。あると install の
+  有無に関わらず「見える」になり、スイート全体が無意味になる
 - `RegName` は 16 個のフォント manifest すべてが事前に `scoop install` 済みであることを
   前提にする(未インストールのものがあると失敗する)
 - `Manifest` は `tests/tools/sync_scripts.py` を実行するため作業ツリー(`bucket/*.json`)

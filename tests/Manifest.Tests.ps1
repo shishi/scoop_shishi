@@ -126,9 +126,20 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         $inst = ($j.installer.script -join "`n")
         $unin = ($j.uninstaller.script -join "`n")
 
-        # 宣言ではなく「呼び出し」を見ること。素朴に 'AddFontResourceW' を探すと
-        # Add-Type の P/Invoke 宣言に当たってしまい、呼び出しを丸ごと消しても
-        # 緑のままになる(実測。意図的に壊して確かめた)
+        # 見るのは「$notifyFonts を呼んでいるか」。ここを間違えると歯が無くなる。
+        # 素朴に 'AddFontResourceW' を探すと Add-Type の P/Invoke 宣言に当たり、
+        # `[ScoopFont.Gdi]::AddFontResourceW(` にしても $notifyFonts の定義本体に
+        # 当たる。どちらも両スクリプトが常に持っているので、呼び出しを全部消しても
+        # 緑のままだった(実測。2 回とも意図的に壊して確かめて気づいた)。
+        # 件数まで固定して、1 箇所でも欠けたら落ちるようにする
+        $instCalls = @([regex]::Matches($inst, '&\s+\$notifyFonts\s+-(Add|Remove)'))
+        $uninCalls = @([regex]::Matches($unin, '&\s+\$notifyFonts\s+-(Add|Remove)'))
+        # installer: 上書き前の Remove / 正常系の Add / 巻き戻しの Remove と Add
+        $instCalls.Count | Should -Be 4
+        # uninstaller: 削除前の Remove / 復元後の Add
+        $uninCalls.Count | Should -Be 2
+
+        # 定義本体の方も残っていること
         $inst | Should -Match '\[ScoopFont\.Gdi\]::AddFontResourceW\('
         $unin | Should -Match '\[ScoopFont\.Gdi\]::RemoveFontResourceW\('
         # WM_FONTCHANGE = 0x1D。これを配らないと起動済みのアプリが一覧を作り直さない
@@ -136,6 +147,29 @@ Describe 'manifest の静的検査' -Tag 'Static' {
             $s | Should -Match '\[ScoopFont\.Gdi\]::SendMessageTimeout\('
             $s | Should -Match '0x1D'
         }
+    }
+
+    It '登録解除を while で回していない' {
+        # 参照カウントはプロセスをまたいでセッション全体で共有される(実測: プロセス A が
+        # 2 回 Add して終了した後、別プロセス B の RemoveFontResourceW が 2 回 true を
+        # 返した)。false になるまで外すと、同じファイルを使っている第三者アプリの
+        # 参照まで奪う。install 1 回につき Add 1 回・uninstall 1 回につき Remove 1 回で釣り合う
+        foreach ($key in 'installer', 'uninstaller') {
+            $s = ($script:Fonts[0].Json.$key.script -join "`n")
+            $s | Should -Not -Match 'while\s*\([^)]*RemoveFontResourceW'
+        }
+    }
+
+    It 'installer が上書きの前に登録を外す' {
+        # 参照カウントが 0 でないパスにファイルを被せても GDI は読み直さず、
+        # 古い中身を配り続ける(実測)。正常系にも Remove が要る。
+        # ループより前にあることまで見る
+        $lines = @($script:Fonts[0].Json.installer.script)
+        $removeAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Remove.*HadDest' })
+        $loopAt   = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\s*foreach \(\$e in \$plan\)' })
+        $removeAt | Should -BeGreaterThan -1
+        $loopAt   | Should -BeGreaterThan -1
+        $removeAt | Should -BeLessThan $loopAt
     }
 
     It 'uninstaller はファイルを消す前に GDI の登録を外す' {
@@ -179,6 +213,17 @@ Describe 'manifest の静的検査' -Tag 'Static' {
             # 通知本体も包んである。catch 側は Write-Host で警告するだけ
             $s | Should -Match '(?s)\$notifyFonts\s*=\s*\{.*?try\s*\{.*?\}\s*catch\s*\{[^}]*Write-Host'
         }
+    }
+
+    It '共通スクリプトの原本に BOM が付いている' -ForEach @('installer', 'pre_uninstall', 'uninstaller') {
+        # PowerShell 5.1 は BOM 無し UTF-8 を cp932 と誤解釈する。原本の BOM が
+        # 落ちると日本語コメントが化けたまま 16 manifest 全部へ伝播する。
+        # sync_scripts.py は utf-8-sig で読む(BOM 無しでも通る)ので気づけず、
+        # 新設の構文解析テストもコメントの化けは検出しない
+        $path = Join-Path (Split-Path $PSScriptRoot) "scripts\$_.ps1"
+        $path | Should -Exist
+        $head = [IO.File]::ReadAllBytes($path)[0..2]
+        ($head -join ',') | Should -Be '239,187,191'
     }
 
     It '共通スクリプトが読み取り専用の自動変数へ代入していない' {
