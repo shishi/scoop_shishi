@@ -140,11 +140,13 @@ Describe '旧版から新版への更新' {
     It '関係の無いフォントが影響を受けていない' {
         # 更新の前後で他ファミリの登録が変わっていないこと。除外するのは
         # hackgen 自身の 4 件のみ(HackGen Console NF * を含め、それ以外は
-        # すべて比較対象に残す)
+        # すべて比較対象に残す)。
+        # キー名の集合だけでなく値も比較する(Assert-RegistryUnchangedExcept)。
+        # キー名の比較だけでは、更新処理が誤って他フォントの登録値を書き換えても
+        # (キー自体は増減しないため)見逃してしまう
         $now = Get-FontEnvSnapshot
-        $others = @($now.Registry.Keys | Where-Object { $_ -notin $script:HackgenOwnRegNames })
-        $before = @($script:Before.Registry.Keys | Where-Object { $_ -notin $script:HackgenOwnRegNames })
-        Compare-Object $before $others | Should -BeNullOrEmpty
+        { Assert-RegistryUnchangedExcept -Before $script:Before -Now $now -ExceptNames $script:HackgenOwnRegNames } |
+            Should -Not -Throw
     }
 
     It 'uninstall で完全に戻る' {

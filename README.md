@@ -41,14 +41,43 @@
 `installer.script` / `pre_uninstall` / `uninstaller.script` の 3 つは **16 manifest すべてで完全に同一**でなければならない。手で写さないこと。原本は
 `scripts/installer.ps1` / `scripts/pre_uninstall.ps1` / `scripts/uninstaller.ps1` の 3 ファイルだけである。
 
-1. 原本(`scripts/*.ps1`)を直す
-2. `python3 tests/tools/sync_scripts.py` で全 manifest へ配る
-3. `tests/tools/sync_scripts.py` の `FONT_MANIFESTS` に新しい名前を足す(manifest を増やした場合)
-4. `powershell -File tests\run.ps1` でテストする
+**manifest を増やす・減らす場合の順序(重要):** `sync_scripts.py` は `FONT_MANIFESTS`
+の allowlist でフィルタするので、先に allowlist を直さないと新しい manifest が
+黙って同期対象から外れる。
 
-同一性は `tests/Manifest.Tests.ps1` が検査する。
+1. `tests/tools/sync_scripts.py` の `FONT_MANIFESTS` に新しい名前を足す(manifest を増やした場合。減らす場合は外す)
+2. 原本(`scripts/*.ps1`)を直す(変更する場合)
+3. `python3 tests/tools/sync_scripts.py` で全 manifest へ配る
+4. 「どの manifest がフォントか」を判定・カウントしている箇所は他にもあり、
+   manifest を増減したときは全部を直す必要がある:
+   - `tests/tools/sync_scripts.py` の `FONT_MANIFESTS`(手順 1 で対応済み)
+   - `tests/tools/gen-expected-regnames.ps1` の `$Apps`
+   - `tests/Manifest.Tests.ps1` の除外リスト `-notin @('crvskkserv', ...)`(BeforeDiscovery に 1 箇所、BeforeAll に 2 箇所、計 3 箇所)
+   - `tests/Uniqueness.Tests.ps1` の除外リスト `$script:CurrentFontManifests`
+   - `tests/tools/zip_entries.py` は manifest に `installer` キーがあるかどうかで
+     自動判定するので手を入れる必要はないが、判定条件がここにもある点は把握しておく
+   - 件数のハードコード: `tests/RegName.Tests.ps1`(期待値 125 件・25 ファミリ)、
+     `tests/Uniqueness.Tests.ps1`(16 manifest・配布 217 個・登録 125 個・35 系除外 92 個)
+5. フィクスチャを再生成する(内容を機械的に生成し直すことで、上のカウント変更を裏づける):
+   - `powershell -File tests\tools\gen-expected-regnames.ps1`(16 個すべてが `scoop install` 済みであることが前提)
+   - `python3 tests/tools/zip_entries.py`(16 manifest ぶんネットワークアクセスする。数分かかる)
+6. `powershell -File tests\run.ps1` でテストする
+
+同一性は `tests/Manifest.Tests.ps1` が検査する。フィクスチャの manifest 集合や
+バージョンとの食い違いは `tests/Uniqueness.Tests.ps1` が検査する。
 
 ### テスト
+
+⚠️ **このスイートは実機のフォント環境を書き換える。** 通常のユニットテストではない。
+
+- `Lifecycle` / `Collision` / `Update` は実際に scoop でフォントパッケージを
+  uninstall・reinstall し、HKCU のレジストリ値を削除してから書き戻し、
+  `%LOCALAPPDATA%\Microsoft\Windows\Fonts` を書き換え、検証用の一時 Scoop bucket を
+  追加・削除する
+- `RegName` は 16 個のフォント manifest すべてが事前に `scoop install` 済みであることを
+  前提にする(未インストールのものがあると失敗する)
+- `Manifest` は `tests/tools/sync_scripts.py` を実行するため作業ツリー(`bucket/*.json`)
+  を書き換える(冪等なので実質的な差分は残らないはずだが、実行自体はする)
 
 ```powershell
 .\tests\run.ps1
@@ -56,3 +85,10 @@
 
 Pester 5.9.0 を `tests/.modules/` へ自動で取り込む(バージョンと SHA256 を固定)。
 共有のモジュールパスは汚さないので、他プロジェクトが使う Pester 3.4.0 には影響しない。
+
+`Bootstrap` / `Manifest` / `Uniqueness` / `FontName` はレジストリにも実フォント環境にも
+触れない、マシン非依存の静的スイートで `Static` タグを付けてある。それだけを走らせるには:
+
+```powershell
+.\tests\run.ps1 -StaticOnly
+```

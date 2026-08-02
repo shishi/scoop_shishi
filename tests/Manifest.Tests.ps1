@@ -4,7 +4,7 @@
         Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') })
 }
 
-Describe 'manifest の静的検査' {
+Describe 'manifest の静的検査' -Tag 'Static' {
     BeforeAll {
         $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
         $script:Fonts = @(Get-ChildItem $script:BucketDir -Filter '*.json' |

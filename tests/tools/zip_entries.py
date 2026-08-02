@@ -2,6 +2,13 @@
 
 zip は末尾の中央ディレクトリだけ HTTP range で取得する。PlemolJP は 206 MB
 あるが転送は数百 KB で済む。
+
+フィクスチャは {manifest: {"version": ..., "files": [...]}} の形。version を
+記録しておくのは、Excavator (schedule.yml) が hourly で version/url/hash を
+書き換えても、このフィクスチャがそれに気づかず古い URL の内容のまま緑であり
+続けるのを防ぐため。tests/Uniqueness.Tests.ps1 がここに記録された version と
+manifest 現在の version を突き合わせ、ズレていれば落ちる。version が変われば
+このスクリプトを再実行してフィクスチャを作り直す必要がある。
 """
 import io
 import json
@@ -73,8 +80,9 @@ def main():
                 names.extend(zip_names(u))
             else:
                 names.append(u.rsplit('/', 1)[-1])
-        result[fn[:-5]] = sorted(n for n in names if n.lower().endswith(FONT_EXT))
-        print(fn[:-5], len(result[fn[:-5]]))
+        files = sorted(n for n in names if n.lower().endswith(FONT_EXT))
+        result[fn[:-5]] = {'version': m['version'], 'files': files}
+        print(fn[:-5], m['version'], len(files))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with io.open(OUT, 'w', encoding='utf-8', newline='\n') as f:
         f.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + '\n')

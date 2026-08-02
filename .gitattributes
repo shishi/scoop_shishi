@@ -1,0 +1,3 @@
+bucket/*.json text eol=crlf
+*.py text eol=lf
+tests/fixtures/*.json text eol=lf

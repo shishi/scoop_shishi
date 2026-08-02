@@ -1,7 +1,12 @@
-﻿param([Parameter(Mandatory)][string]$Dir)
+﻿param(
+    [Parameter(Mandatory)][string]$Dir,
+    [string[]]$Tag
+)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $Dir 'bootstrap.ps1')
-$r = Invoke-Pester -Path $Dir -PassThru -Output Detailed
+$peParams = @{ Path = $Dir; PassThru = $true; Output = 'Detailed' }
+if ($Tag) { $peParams['TagFilter'] = $Tag }
+$r = Invoke-Pester @peParams
 
 # FailedCount だけを見てはいけない。テストファイルが構文エラーで読み込めなかった場合、
 # 失敗した「テスト」は 0 件のまま FailedContainersCount だけが立つ。実測では

@@ -28,7 +28,7 @@ AfterAll {
     }
 }
 
-Describe 'Get-FontFullName' {
+Describe 'Get-FontFullName' -Tag 'Static' {
     It '実在のフォントから Full font name を読める' {
         $sample = Join-Path $env:WINDIR 'Fonts\BIZUDGothic-Regular.ttf'
         if (-not (Test-Path $sample)) { Set-ItResult -Skipped -Because 'BIZ UDGothic が OS に無い' }

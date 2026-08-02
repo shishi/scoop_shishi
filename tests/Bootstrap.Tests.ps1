@@ -1,4 +1,4 @@
-﻿Describe 'Pester の取り込み' {
+﻿Describe 'Pester の取り込み' -Tag 'Static' {
     It '固定した 5.9.0 が読み込まれている' {
         (Get-Module Pester).Version.ToString() | Should -Be '5.9.0'
     }
@@ -7,7 +7,7 @@
     }
 }
 
-Describe 'テスト実行の入口' {
+Describe 'テスト実行の入口' -Tag 'Static' {
     It '読み込めないテストファイルがあれば 0 以外で終わる' {
         # このスイート自身を壊すわけにはいかないので、別ディレクトリを作ってそこへ投げる。
         #
