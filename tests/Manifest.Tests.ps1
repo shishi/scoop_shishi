@@ -89,6 +89,24 @@ Describe 'bucket 全体の静的検査' -Tag 'Static' {
         $id | Should -Not -BeNullOrEmpty
     }
 
+    # BOM / CRLF はファイルの体裁なのでフォントかどうかに関係が無い。
+    # フォント側の Describe に置いていたぶん、非フォントの 6 件は素通りしていた
+    It '<_.BaseName> に BOM が付いていない' -ForEach $script:AllManifestFiles {
+        $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
+        ($head -join ',') | Should -Not -Be '239,187,191'
+    }
+
+    It '<_.BaseName> の改行が CRLF に揃っている' -ForEach $script:AllManifestFiles {
+        $b = [IO.File]::ReadAllBytes($_.FullName)
+        $lf = 0; $crlf = 0
+        for ($i = 0; $i -lt $b.Length; $i++) {
+            if ($b[$i] -ne 10) { continue }
+            if ($i -gt 0 -and $b[$i - 1] -eq 13) { $crlf++ } else { $lf++ }
+        }
+        $crlf | Should -BeGreaterThan 0
+        $lf   | Should -Be 0
+    }
+
     It '<_.BaseName> の autoupdate テンプレートを scoop が展開できる' -ForEach $script:AllManifestFiles {
         # scoop の substitute は素の文字列置換で、置換表の鍵は '$version' のような
         # 素のトークン。${version} 形式は一致せず、そのまま残る。tclock-win10 が
@@ -241,22 +259,6 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         # キー作成が入っていることを静的に検査する
         $s = ($script:Fonts[0].Json.installer.script -join "`n")
         $s | Should -Match 'New-Item\s+-Path\s+\$regKey\s+-Force'
-    }
-
-    It '<_.BaseName> に BOM が付いていない' -ForEach $script:ManifestFiles {
-        $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
-        ($head -join ',') | Should -Not -Be '239,187,191'
-    }
-
-    It '<_.BaseName> の改行が CRLF に揃っている' -ForEach $script:ManifestFiles {
-        $b = [IO.File]::ReadAllBytes($_.FullName)
-        $lf = 0; $crlf = 0
-        for ($i = 0; $i -lt $b.Length; $i++) {
-            if ($b[$i] -ne 10) { continue }
-            if ($i -gt 0 -and $b[$i - 1] -eq 13) { $crlf++ } else { $lf++ }
-        }
-        $crlf | Should -BeGreaterThan 0
-        $lf   | Should -Be 0
     }
 
     It 'sync_scripts.py を走らせても manifest が変化しない（冪等）' {
