@@ -107,6 +107,51 @@ Describe 'bucket 全体の静的検査' -Tag 'Static' {
         $lf   | Should -Be 0
     }
 
+    It '<_.BaseName> の URL が平文 http でない' -ForEach $script:AllManifestFiles {
+        # 配布元が https を持っているのに http のまま書いてある manifest があった
+        # (mery。実測: http は https へ 301 され、https で直接叩いても同じ
+        # 6,096,429 バイトが返る)。
+        #
+        # 「hash を固定しているから平文でも安全」は install 経路にしか当てはまらない。
+        # mery は autoupdate.hash を持たないので、checkver は落としたバイト列から
+        # hash を計算して manifest へ書き込む(実測: `Downloading ... to compute
+        # hashes!`)。Excavator はこれを毎時回して自動 commit するので、平文のままだと
+        # 差し替えられた中身の hash がそのまま「正しい hash」として焼き付く。
+        #
+        # 生の本文を走査すると、XML の名前空間 URI(識別子であって取得先ではない)や
+        # web.archive.org の URL に入れ子になった http まで拾ってしまう。とくに
+        # installer.script は sync_scripts.py が 16 manifest へ配るので、1 本の
+        # リンクで 16 件が同時に落ちて「名前空間を https にする」という誤った修正へ
+        # 誘導される。取得先として使われるキーだけを見て、スキームの位置で判定する。
+        #
+        # 将来 https を持たない配布元が出てきたら、この判定を緩めるのではなく
+        # 「その 1 件だけを明示的に除外する」形にすること
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        $nodes = @($j, $j.autoupdate)
+        foreach ($arch in $j.architecture, $j.autoupdate.architecture) {
+            if ($arch) {
+                foreach ($a in @($arch.PSObject.Properties.Name)) { $nodes += $arch.$a }
+            }
+        }
+
+        $urls = @()
+        foreach ($n in $nodes) {
+            if (-not $n) { continue }
+            foreach ($key in 'url', 'homepage') { if ($n.$key) { $urls += @($n.$key) } }
+            if ($n.hash.url) { $urls += @($n.hash.url) }
+        }
+        # checkver も license も文字列のことがある('github' / 'MIT')。
+        # 文字列に .url を引くと $null になるだけなので分岐は要らない
+        foreach ($n in $j.checkver, $j.license) { if ($n.url) { $urls += @($n.url) } }
+
+        # スキームは値の先頭。含まれているかで見ると
+        # https://web.archive.org/web/2020id_/http://... のような正当な値を落とす。
+        # (?i) はスキームが大文字小文字を区別しないため(HTTP:// も取得先は平文)
+        $bad = @($urls | Where-Object { $_ -match '(?i)^http://' })
+        ($bad -join ', ') | Should -BeNullOrEmpty
+    }
+
     It '<_.BaseName> の autoupdate テンプレートを scoop が展開できる' -ForEach $script:AllManifestFiles {
         # scoop の substitute は素の文字列置換で、置換表の鍵は '$version' のような
         # 素のトークン。${version} 形式は一致せず、そのまま残る。tclock-win10 が
