@@ -8,6 +8,68 @@
 }
 
 Describe 'bucket 全体の静的検査' -Tag 'Static' {
+    BeforeAll {
+        # scoop の Get-VersionSubstitution と同じ表を、scoop の substitute と同じ
+        # 素の文字列置換で当てる。substitute が見るのは '$version' のような素の
+        # トークンだけで、${version} 形式は展開されない。1 つでも欠けると、その
+        # 置換子を使った正しい manifest を嘘の赤で落とすことになる
+        $script:ExpandVersion = {
+            param([string]$Template, [string]$Version)
+            $first = $Version.Split('-') | Select-Object -First 1
+            $parts = $first.Split('.')
+            $vars = @{
+                'version'           = $Version
+                'dotVersion'        = ($Version -replace '[._-]', '.')
+                'underscoreVersion' = ($Version -replace '[._-]', '_')
+                'dashVersion'       = ($Version -replace '[._-]', '-')
+                'cleanVersion'      = ($Version -replace '[._-]', '')
+                'majorVersion'      = ($parts | Select-Object -First 1)
+                'minorVersion'      = ($parts | Select-Object -Skip 1 -First 1)
+                'patchVersion'      = ($parts | Select-Object -Skip 2 -First 1)
+                'buildVersion'      = ($parts | Select-Object -Skip 3 -First 1)
+                'preReleaseVersion' = ($Version.Split('-') | Select-Object -Last 1)
+            }
+            if ($Version -match '(?<head>\d+\.\d+(?:\.\d+)?)(?<tail>.*)') {
+                $vars['matchHead'] = $Matches['head']
+                $vars['matchTail'] = $Matches['tail']
+            }
+            $s = $Template
+            # 長い名前から潰す。'$version' を先に消すと '$versionXxx' 形の
+            # 置換子が食われる
+            foreach ($k in ($vars.Keys | Sort-Object { $_.Length } -Descending)) {
+                $v = if ($null -eq $vars[$k]) { '' } else { [string]$vars[$k] }
+                $s = $s.Replace('$' + $k, $v)
+            }
+            $s
+        }
+
+        # checkver の名前付きキャプチャ($matchFoo)は version だけからは組み立て
+        # られない。展開できなくても manifest の不備ではないので取り除いて見る
+        $script:DropCustomMatches = { param([string]$Text) $Text -replace '\$match[A-Z]\w*', '' }
+
+        # 各 manifest の autoupdate から、version を埋めて使われるテンプレートを
+        # 場所つきで拾う。hash の regex などは $basename や $sha256 を正当に含む
+        # ので対象にしない
+        $script:AutoupdateTemplates = {
+            param($Json)
+            $au = $Json.autoupdate
+            $found = @()
+            foreach ($prop in 'url', 'extract_dir') {
+                if ($au.$prop) {
+                    $found += [pscustomobject]@{ Where = "autoupdate.$prop"; Text = ($au.$prop -join ' ') }
+                }
+                if ($au.architecture) {
+                    foreach ($a in @($au.architecture.PSObject.Properties.Name)) {
+                        if ($au.architecture.$a.$prop) {
+                            $found += [pscustomobject]@{ Where = "autoupdate.architecture.$a.$prop"; Text = ($au.architecture.$a.$prop -join ' ') }
+                        }
+                    }
+                }
+            }
+            $found
+        }
+    }
+
     # shovel の PR Validator は変更された manifest について Description と License を
     # 検査する。フォント manifest の必須キー検査はフォント以外を除外しているので、
     # tclock-win10 / umaumachecker / umaumacruise の 3 件が未記入のまま残っていた。
@@ -27,6 +89,83 @@ Describe 'bucket 全体の静的検査' -Tag 'Static' {
         $id | Should -Not -BeNullOrEmpty
     }
 
+    It '<_.BaseName> の autoupdate テンプレートを scoop が展開できる' -ForEach $script:AllManifestFiles {
+        # scoop の substitute は素の文字列置換で、置換表の鍵は '$version' のような
+        # 素のトークン。${version} 形式は一致せず、そのまま残る。tclock-win10 が
+        # これで、2022 年に入った ${version}/${cleanVersion} が今の shovel では
+        # 展開されない(実測: checkver -Update -ForceUpdate が
+        # `.../download/${version}/TClock-Win10_${cleanVersion}_64bit.zip` を
+        # そのまま叩いて 404 で失敗した)。checkver は成功したまま autoupdate だけが
+        # 死ぬので、次のリリースが来るまで誰も気づかない
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($t in @(& $script:AutoupdateTemplates $j)) {
+            $left = & $script:DropCustomMatches (& $script:ExpandVersion $t.Text $j.version)
+            $left | Should -Not -Match '\$' -Because "$($t.Where) に scoop が展開できない置換子が残る"
+        }
+    }
+
+    It '<_.BaseName> の extract_dir を autoupdate が維持できる' -ForEach $script:AllManifestFiles {
+        # tclock-win10 は extract_dir を top-level に、autoupdate のテンプレートを
+        # architecture.64bit に置いていた。scoop の autoupdate は同じ場所しか書き換え
+        # ないので、version が 5.1.6.1 から 2 回上がっても extract_dir は 5161 のまま
+        # 取り残された(実測: 5.4.1.1 の zip の最上位は TClock-Win10_5411_64bit)。
+        # scoop は 7-Zip に -ir!<extract_dir>\* を渡すので、存在しないディレクトリでも
+        # 「No files to process / Everything is Ok」で正常終了し、0 件を取り出す(実測)。
+        # 壊れていることが install の失敗としてしか表に出てこないので静的に留める
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        # scoop の Update-ManifestProperty と同じ順に更新先を決める。
+        # top-level は「値もテンプレートも top-level にある」ときだけ、そうでなければ
+        # architecture ごとに見て、テンプレートは arch 側 → top-level の順に探す
+        $au = $j.autoupdate
+        $targets = @()
+        if ($j.extract_dir -and $au.extract_dir) {
+            $targets += [pscustomobject]@{ Where = 'top-level'; Value = $j.extract_dir; Template = $au.extract_dir }
+            # この枝に入ると scoop は top-level だけを書き換えて終わる。一方 install が
+            # 読むのは arch_specific なので architecture 側があればそちらが勝つ。
+            # 両方あると「更新される値」と「使われる値」が別物になり、また取り残される
+            if ($j.architecture) {
+                foreach ($a in @($j.architecture.PSObject.Properties.Name)) {
+                    $j.architecture.$a.extract_dir | Should -BeNullOrEmpty -Because "top-level の extract_dir が autoupdate の更新先なのに architecture.$a が上書きしている。install で使われるのは architecture.$a 側で、そちらは更新されない"
+                }
+            }
+        } elseif ($j.architecture) {
+            foreach ($a in @($j.architecture.PSObject.Properties.Name)) {
+                $tpl = if ($au.architecture.$a.extract_dir) { $au.architecture.$a.extract_dir } else { $au.extract_dir }
+                if ($j.architecture.$a.extract_dir -and $tpl) {
+                    $targets += [pscustomobject]@{ Where = "architecture.$a"; Value = $j.architecture.$a.extract_dir; Template = $tpl }
+                }
+            }
+        }
+
+        $hasTemplate = [bool]$au.extract_dir
+        if (-not $hasTemplate -and $au.architecture) {
+            foreach ($a in @($au.architecture.PSObject.Properties.Name)) {
+                if ($au.architecture.$a.extract_dir) { $hasTemplate = $true }
+            }
+        }
+        if ($hasTemplate) {
+            $targets.Count | Should -BeGreaterThan 0 -Because 'autoupdate に extract_dir のテンプレートがあるのに、scoop が書き換える場所に extract_dir が無い。よそに置いた値は更新されず取り残される'
+        }
+
+        foreach ($t in $targets) {
+            # extract_dir は url と 1 対 1 で並ぶ配列でもよい(schema は
+            # stringOrArrayOfStrings、decompress.ps1 も @(extract_dir ...) して
+            # url ごとに引いている)。素の文字列として扱うと配列がスペース連結の
+            # 1 本に潰れ、正しい manifest を「version と食い違っている」という
+            # 見当違いの理由で落とす。両辺を配列に揃えて要素ごとに見る
+            $tpls = @($t.Template)
+            $vals = @($t.Value)
+            $vals.Count | Should -Be $tpls.Count -Because "$($t.Where) の extract_dir とテンプレートで件数が合わない"
+            for ($i = 0; $i -lt $tpls.Count; $i++) {
+                # 名前付きキャプチャが混じるものは version だけからは決まらないので
+                # 突き合わせない。それ以外の展開漏れは上の It が落とす
+                if ((& $script:DropCustomMatches $tpls[$i]) -ne $tpls[$i]) { continue }
+                # 誤っているのは manifest 側なので、そちらを actual に置く
+                $vals[$i] | Should -Be (& $script:ExpandVersion $tpls[$i] $j.version) -Because "$($t.Where) の extract_dir[$i] が現在の version と食い違っている"
+            }
+        }
+    }
 }
 
 Describe 'manifest の静的検査' -Tag 'Static' {
