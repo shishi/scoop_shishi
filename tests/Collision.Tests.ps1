@@ -400,6 +400,14 @@ Describe 'uninstaller のロック耐性とジャーナル退役' {
 
             # 未解決のエントリがあるので退避ディレクトリ自体は生き残る
             $script:Backup | Should -Exist
+
+            # 注意: ここでもう一度 uninstaller.script を実行する検証は意図的に置かない。
+            # backupDir 側の記録は既に退役済みなので、ここで再実行すると app ディレクトリ側の
+            # 写し(フォールバック)まで退役させてしまう。その写しは、ロック解除後に続く
+            # 「通常の scoop uninstall」(下記)がロックされた1件の後始末を終えるために
+            # 読む唯一の記録なので、ここで消費すると後続の検証がロックされたファイルを
+            # 永久に片付けられなくなる。中断後の再実行の安全性は、全て片付いた後
+            # (記録がどこにも無い状態)で確認する形でこの Describe の末尾に別途置く
         } finally {
             $handle.Close()
         }
@@ -423,6 +431,16 @@ Describe 'uninstaller のロック耐性とジャーナル退役' {
         }
         foreach ($rn in $script:AllRegNames) {
             Get-FontRegValue -Name $rn | Should -BeNullOrEmpty
+        }
+        $script:Backup | Should -Not -Exist
+
+        # 新規: 全て片付いた後(記録も退避ディレクトリも存在しない状態)にもう一度
+        # 同じスクリプトを実行しても、記録が見つからないので何もせず安全に退却する
+        # ことを確認する。中断後の再実行が「記録が無ければ何もしない」という
+        # 宣言どおりに振る舞うことの直接的な確認
+        { Invoke-Command ([scriptblock]::Create($uninstallerText)) } | Should -Not -Throw
+        foreach ($n in $script:Touched) {
+            (Join-Path $script:FontDir $n) | Should -Not -Exist
         }
         $script:Backup | Should -Not -Exist
     }
