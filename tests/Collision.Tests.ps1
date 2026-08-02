@@ -243,6 +243,19 @@ Describe '既存ファイルとの衝突' {
 
     It 'install 後に第三者が差し替えたファイルは uninstall で消さない' {
         scoop install $script:Manifest 2>&1 | Out-Null
+
+        # 配置先を第三者のファイルで差し替える検証なので、書き込めないと成立しない。
+        # フォントがアプリから見えるようになった結果、エディタや端末が実際に
+        # 描画へ使ってメモリマップし、書き込めないことがある(実測)。
+        # 環境の状態であってテストの不具合ではないので、緑と偽らず skip する
+        try {
+            $probe = [IO.File]::Open($script:Target, 'Open', 'ReadWrite', 'None')
+            $probe.Dispose()
+        } catch {
+            Set-ItResult -Skipped -Because ("$(Split-Path $script:Target -Leaf) が他のプロセスに使用中で差し替えられない。" +
+                '使っているアプリを閉じてから再実行すること')
+        }
+
         $tamperedHash = New-DecoyFont $script:Target
 
         scoop uninstall biz-udgothic 2>&1 | Out-Null
