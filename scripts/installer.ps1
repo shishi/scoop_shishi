@@ -189,6 +189,10 @@ foreach ($f in (Get-ChildItem $dir -Recurse -Include '*.ttf', '*.otf' |
         InstalledRegValue = $dest
         Hash    = (Get-FileHash -LiteralPath $f.FullName).Hash
         RegRoot = $regRoot
+        # 配置先が元から GDI に登録されていたか。上書き前の Remove が true を
+        # 返したかで分かる。uninstall で元ファイルを戻したあと登録し直すべきかの
+        # 判断に要る。これが無いと、誰も参照していなかったファイルに参照が生える
+        HadGdiRef = if ($old) { $old.HadGdiRef } else { $false }
         Phase   = 'planned'   # planned -> mutating -> done（巻き戻したら rolledback）
     })
 }
@@ -226,9 +230,17 @@ try {
     # 判断は所有権の記録($_.HadDest)ではなく「今そこにファイルが在るか」。
     # HadDest は前回の試行のジャーナルを引き継ぐことがあり、今の実状態とずれる。
     # ずれたまま Remove を飛ばすと、この後の Add と釣り合わず参照が二重に残る
-    & $notifyFonts -Remove @($plan |
-        Where-Object { Test-Path -LiteralPath $_.Dest -PathType Leaf } |
-        ForEach-Object { $_.Dest })
+    # 1 件ずつ呼んで、true が返ったか(＝元から参照があったか)を記録する。
+    # この事実は uninstall まで持ち越す必要がある。元ファイルを戻したあとに
+    # 登録し直してよいのは「元から参照があった」場合だけで、無かった場合に
+    # 足すと、誰も外さない参照がセッションに残る
+    foreach ($e in $plan) {
+        if (-not (Test-Path -LiteralPath $e.Dest -PathType Leaf)) { continue }
+        $before = $removedOk.Count
+        & $notifyFonts -Remove @($e.Dest)
+        $e.HadGdiRef = ($removedOk.Count -gt $before)
+    }
+    & $saveState   # HadGdiRef を記録に落とす。ここから先で落ちても失われない
 
     foreach ($e in $plan) {
         # 変更に入る前に印を付けて保存する。途中でプロセスが落ちても対象だと分かる

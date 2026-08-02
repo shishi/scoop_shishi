@@ -221,11 +221,19 @@ foreach ($e in $entries) {
     }
 }
 
-# 登録し直すのは「実際に外せた分」のうち、まだファイルが在るもの＝復元された元ファイル。
-# $mine で数えてはいけない。install 側の Add が失敗していた場合、Remove は空振りして
-# false を返すので、$mine を戻すと外していない参照を足すことになる。
-# $removedOk には true が返ったものだけが入っているので、そのまま戻せば収支が合う
-& $notifyFonts -Add @($removedOk | Where-Object { Test-Path -LiteralPath $_ }) -Broadcast
+# 登録し直すのは「元ファイルを戻したうえで、元から GDI 参照があった配置先」だけ。
+#
+# 「実際に外せた分を戻す」では足りない。外したのは install 時に自分が足した参照で、
+# 戻す先は復元された元ファイルだからだ。元ファイルを誰も参照していなかった場合
+# (HadGdiRef が false)、戻すと誰も外さない参照が生える。install 時に
+# 上書き前 Remove が true を返したかを記録してあるので、それで判断する。
+#
+# $mine で数えるのも誤り。install 側の Add が失敗していた場合、Remove は空振りして
+# false を返すので、$mine を戻すと外していない参照を足すことになる
+$readd = @($touched | Where-Object {
+    $_.HadGdiRef -and ($removedOk -contains $_.Dest) -and (Test-Path -LiteralPath $_.Dest)
+} | ForEach-Object { $_.Dest })
+& $notifyFonts -Add $readd -Broadcast
 
 # 記録は既にループ前で退役させてある。ここでは退避の後始末だけを判断する
 if ($unresolved.Count -eq 0) {

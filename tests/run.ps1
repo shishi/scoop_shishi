@@ -3,8 +3,10 @@
     Bootstrap / Manifest / Uniqueness / FontName のみを実行する。この 4 つは
     レジストリや %LOCALAPPDATA%\...\Fonts、実インストール済みの scoop app に
     触れないマシン非依存のスイートで、'Static' タグを付けてある。
-    Lifecycle / Collision / Update / RegName / FontNotify は実機のフォント環境を
-    書き換える(詳細は README のテストの節)ため、このスイッチでは実行しない。
+    Lifecycle / Collision / Update / RegName / FontNotify / GdiRefCount は
+    実機のフォント環境やレジストリに触れる(詳細は README のテストの節)ため、
+    このスイッチでは実行しない。
+    GdiRefCount だけを走らせたいときは -Tag GdiRef を invoke.ps1 へ渡す。
 #>
 param([switch]$StaticOnly)
 $ErrorActionPreference = 'Stop'

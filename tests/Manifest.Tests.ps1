@@ -209,12 +209,17 @@ Describe 'manifest の静的検査' -Tag 'Static' {
             $s = ($script:Fonts[0].Json.$key.script -join "`n")
             # 返り値を捨てず、true のときだけ記録していること
             $s | Should -Match 'if \(\[ScoopFont\.GdiV\d+\]::RemoveFontResourceW\(\$p\)\)\s*\{\s*\[void\]\$removedOk\.Add\(\$p\)'
-            # 戻す側が $removedOk 由来であること
-            $s | Should -Match '@\(\$removedOk'
         }
-        # 戻す側に $mine や $plan を直接使っていないこと(収支が合わなくなる)
+        # installer の巻き戻しは「実際に外せた分」から戻す
+        $inst = ($script:Fonts[0].Json.installer.script -join "`n")
+        $inst | Should -Match 'foreach \(\$p in @\(\$removedOk\)\)'
+
+        # uninstaller は、それに加えて「元から GDI 参照があったか」で絞る。
+        # 外したのは install 時に自分が足した参照で、戻す先は復元された元ファイル。
+        # 元ファイルを誰も参照していなかったなら戻してはいけない
         $unin = ($script:Fonts[0].Json.uninstaller.script -join "`n")
         $unin | Should -Not -Match '&\s+\$notifyFonts\s+-Add\s+@\(\$mine'
+        $unin | Should -Match '\$_\.HadGdiRef\s+-and\s+\(\$removedOk -contains \$_\.Dest\)'
     }
 
     It 'installer が変更のあとに Add してからブロードキャストする' {
@@ -253,21 +258,32 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         }
     }
 
-    It 'installer が上書きの前に登録を外す' {
+    It 'installer が上書きの前に登録を外し、元の参照有無を記録する' {
         # 参照カウントが 0 でないパスにファイルを被せても GDI は読み直さず、
         # 古い中身を配り続ける(実測)。正常系にも Remove が要る。
-        # ループより前にあることまで見る
-        $lines = @($script:Fonts[0].Json.installer.script)
+        #
         # 「$notifyFonts -Remove」の存在だけを見ると、渡す配列を空にする変異を
-        # 見逃す(実測: 変数を空配列に潰しても緑だった)。$plan から実在する
-        # 配置先を集めていることまで含めて照合する
-        $removeAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Remove\s+@\(\$plan' })
-        $gateAt   = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match 'Where-Object \{ Test-Path -LiteralPath \$_\.Dest -PathType Leaf \}' })
-        $gateAt | Should -BeGreaterThan $removeAt -Because '上書き前 Remove の対象が「今そこにファイルが在るか」で絞られていない'
-        $loopAt   = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\s*foreach \(\$e in \$plan\)' })
-        $removeAt | Should -BeGreaterThan -1
-        $loopAt   | Should -BeGreaterThan -1
-        $removeAt | Should -BeLessThan $loopAt
+        # 見逃す(実測: 変数を空配列に潰しても緑だった)。実在する配置先だけを
+        # 対象にしていること、true が返ったかを記録していること、
+        # そして変更に入る前であることまで含めて見る
+        $lines = @($script:Fonts[0].Json.installer.script)
+        $find = {
+            param([string]$Pattern)
+            [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match $Pattern })
+        }
+        $removeAt   = & $find '&\s+\$notifyFonts\s+-Remove\s+@\(\$e\.Dest\)'
+        $gateAt     = & $find 'if \(-not \(Test-Path -LiteralPath \$e\.Dest -PathType Leaf\)\) \{ continue \}'
+        $recordAt   = & $find '\$e\.HadGdiRef\s*=\s*\(\$removedOk\.Count\s+-gt\s+\$before\)'
+        $mutatingAt = & $find "\`$e\.Phase = 'mutating'"
+
+        $removeAt   | Should -BeGreaterThan -1 -Because '上書き前の Remove が無い'
+        $gateAt     | Should -BeGreaterThan -1 -Because '対象が「今そこにファイルが在るか」で絞られていない'
+        $recordAt   | Should -BeGreaterThan -1 -Because '元から参照があったかを記録していない'
+        $mutatingAt | Should -BeGreaterThan -1
+
+        $gateAt   | Should -BeLessThan $removeAt
+        $removeAt | Should -BeLessThan $recordAt
+        $recordAt | Should -BeLessThan $mutatingAt -Because '記録は変更に入る前に済ませる'
     }
 
     It 'uninstaller はファイルを消す前に GDI の登録を外す' {

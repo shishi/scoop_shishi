@@ -78,6 +78,15 @@
   新しいプロセスの DirectWrite で確かめる。検証に使うファミリは HKLM
   (`C:\Windows\Fonts`)に同名の登録が無いものでなければならない。あると install の
   有無に関わらず「見える」になり、スイート全体が無意味になる
+- `GdiRefCount` は GDI のフォント参照カウントの収支を検証する。実機の GDI もフォント環境も
+  触らない代わりに、P/Invoke をカウンタ付きのスタブへ差し替え、`$env:LOCALAPPDATA` を
+  一時ディレクトリへ、`HKCU:` PSDrive を `HKCU\Software\ScoopFontRefCountTest` へ
+  張り替える(実レジストリへの書き込みはこのサンドボックス用キーの作成 1 回だけ)。
+  張り替えに失敗した場合は本物のレジストリを汚す前に停止する。
+  このスイートだけを走らせるには `tests\invoke.ps1 -Dir tests -Tag GdiRef`
+
+  ファイルとレジストリが正しくても参照カウントだけが狂う不具合は、他のどのスイートでも
+  検出できない。外部レビューで 3 回続けて同じ場所を間違えたので専用のスイートを置いた
 - `RegName` は 16 個のフォント manifest すべてが事前に `scoop install` 済みであることを
   前提にする(未インストールのものがあると失敗する)
 - `Manifest` は `tests/tools/sync_scripts.py` を実行するため作業ツリー(`bucket/*.json`)
