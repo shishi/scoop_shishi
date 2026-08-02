@@ -3,8 +3,16 @@ Windows 自身がレジストリキーに付けた名前(nameID 4 の文字列�
 確認する。
 
 RegName.Tests.ps1 の「Windows 自身が付けた名前と同じ規則である」テストから
-標準入力へ JSON 配列 [{"key": <HKLM のキー名>, "file": <実ファイルパス>,
-"family": <フィクスチャ上のファミリ名>}, ...] を渡して呼び出す。
+JSON 配列 [{"key": <HKLM のキー名>, "file": <実ファイルパス>,
+"family": <フィクスチャ上のファミリ名>}, ...] を書いたファイルのパスを
+第 1 引数に渡して呼び出す。
+
+入力を標準入力ではなくファイルで受けるのは、PowerShell 5.1 から
+ネイティブコマンドへの `$payload | & python3 ...` が、ごく稀に空の標準入力の
+まま起動することがあるため(実測: 同一コミットで 4 回中 1 回、
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 で落ちた)。
+入力が空なら「候補ゼロ」と区別が付かず、テストが理由不明に落ちる。
+ファイル渡しならこの競合そのものが存在しない。
 
 なぜサフィックス((TrueType)/(OpenType))を比較対象から外すか:
 nameid4.py はサフィックスをファイル拡張子から機械的に決めている
@@ -30,7 +38,11 @@ import nameid4  # noqa: E402
 
 
 def main():
-    candidates = json.load(sys.stdin)
+    if len(sys.argv) < 2:
+        raise SystemExit('使い方: check-hklm-names.py <候補を書いた JSON ファイル>')
+    with open(sys.argv[1], encoding='utf-8-sig') as f:
+        candidates = json.load(f)
+    # PowerShell の ConvertTo-Json は要素が 1 個だと配列にせず単体オブジェクトを出す
     if isinstance(candidates, dict):
         candidates = [candidates]
 

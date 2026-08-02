@@ -137,9 +137,18 @@ Describe 'レジストリのキー名' {
         }
 
         $checker = Join-Path $PSScriptRoot 'tools\check-hklm-names.py'
-        $payload = $candidates | ConvertTo-Json -Compress -Depth 3
-        $resultJson = $payload | & python3 $checker
-        if ($LASTEXITCODE -ne 0) { throw "check-hklm-names.py が失敗した: $resultJson" }
+        # 標準入力へパイプしない。`$payload | & python3 ...` は稀に空の標準入力の
+        # まま python を起動し、JSONDecodeError で理由不明に落ちる(実測: 同一
+        # コミットで 4 回中 1 回)。ファイル渡しならその競合が存在しない
+        $payloadPath = Join-Path ([IO.Path]::GetTempPath()) ("hklm-names-$([guid]::NewGuid()).json")
+        try {
+            $candidates | ConvertTo-Json -Compress -Depth 3 |
+                Set-Content -LiteralPath $payloadPath -Encoding UTF8
+            $resultJson = & python3 $checker $payloadPath
+            if ($LASTEXITCODE -ne 0) { throw "check-hklm-names.py が失敗した: $resultJson" }
+        } finally {
+            Remove-Item -LiteralPath $payloadPath -Force -ErrorAction SilentlyContinue
+        }
         $result = $resultJson | ConvertFrom-Json
 
         Write-Host ("HKLM ground-truth: {0}/{1} エントリ, {2}/{3} ファミリ ({4}) を裏付け確認" -f `
