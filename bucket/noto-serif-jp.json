@@ -7,7 +7,7 @@
     "hash": "53bdd2a6e4eb63bf24f7890e018dddb94366e3555d0814c72b74fbb128f328f0",
     "checkver": {
         "url": "https://github.com/notofonts/noto-cjk/releases.atom",
-        "re": "releases/tag/Serif([\\d.]+)"
+        "regex": "releases/tag/Serif([\\d.]+)"
     },
     "autoupdate": {
         "url": "https://github.com/notofonts/noto-cjk/releases/download/Serif$version/12_NotoSerifJP.zip"

@@ -59,7 +59,8 @@ def zip_names(url, tail=300000):
         nlen, elen, clen = struct.unpack('<HHH', buf[p + 28:p + 34])
         name = buf[p + 46:p + 46 + nlen].decode('utf-8', 'replace')
         if not name.endswith('/'):
-            names.append(name.rsplit('/', 1)[-1])
+            # フルパスのまま返す。extract_dir で絞る側が親ディレクトリを要る
+            names.append(name)
         p += 46 + nlen + elen + clen
     return names
 
@@ -74,10 +75,20 @@ def main():
         if 'installer' not in m:
             continue          # フォント以外の manifest は飛ばす
         urls = m['url'] if isinstance(m['url'], list) else [m['url']]
+        # extract_dir がある場合、scoop はその配下だけを展開する。zip 全体を
+        # 数えると installer が見ないファイルまで数えてしまう。実際
+        # biz-udmincho の zip は extract_dir の外にも同名フォントの複製を
+        # 持っており、絞らないと 4 本のところを 8 本と数える
+        extract = m.get('extract_dir')
+        extracts = extract if isinstance(extract, list) else [extract] * len(urls)
         names = []
-        for u in urls:
+        for u, ex in zip(urls, extracts):
             if u.lower().endswith('.zip'):
-                names.extend(zip_names(u))
+                entries = zip_names(u)
+                if ex:
+                    prefix = ex.replace('\\', '/').strip('/') + '/'
+                    entries = [n for n in entries if n.startswith(prefix)]
+                names.extend(n.rsplit('/', 1)[-1] for n in entries)
             else:
                 names.append(u.rsplit('/', 1)[-1])
         files = sorted(n for n in names if n.lower().endswith(FONT_EXT))

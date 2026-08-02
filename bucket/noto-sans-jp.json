@@ -7,7 +7,7 @@
     "hash": "2bbdd2c20f30670b39ca735c96d75f1fdabdb348103e43b820cf17701fd22b18",
     "checkver": {
         "url": "https://github.com/notofonts/noto-cjk/releases.atom",
-        "re": "releases/tag/Sans([\\d.]+)"
+        "regex": "releases/tag/Sans([\\d.]+)"
     },
     "autoupdate": {
         "url": "https://github.com/notofonts/noto-cjk/releases/download/Sans$version/16_NotoSansJP.zip"

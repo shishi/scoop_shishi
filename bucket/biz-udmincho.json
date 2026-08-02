@@ -3,26 +3,13 @@
     "description": "BIZ UDMincho / BIZ UDPMincho — モリサワのユニバーサルデザイン明朝体",
     "homepage": "https://github.com/googlefonts/morisawa-biz-ud-mincho",
     "license": "OFL-1.1",
-    "url": [
-        "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v1.06/BIZUDMincho-Bold.ttf",
-        "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v1.06/BIZUDMincho-Regular.ttf",
-        "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v1.06/BIZUDPMincho-Bold.ttf",
-        "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v1.06/BIZUDPMincho-Regular.ttf"
-    ],
-    "hash": [
-        "1f077f8f84c1e09d5c4acdd6828048180c2f733ae5ae13271f48cf01bee4ae83",
-        "468ee6d9b149ca144809e03841bf18740ecf014e055a00da6ecaf1aaf4165af2",
-        "99618e39b881597efc03d58706bd194757c968c1bf7a7017a893efead6b1b260",
-        "dbcea04578ac1e9d3484525e870ce491bd04361768f4d2ba4b827d96e20f891d"
-    ],
+    "url": "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v1.06/morisawa-biz-ud-mincho-fonts.zip",
+    "hash": "7c93630a3b9deb583c782c930df2e3f478ffb9963f467b6d804187af2e853149",
+    "extract_dir": "morisawa-biz-ud-mincho-fonts/fonts/ttf",
     "checkver": "github",
     "autoupdate": {
-        "url": [
-            "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v$version/BIZUDMincho-Bold.ttf",
-            "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v$version/BIZUDMincho-Regular.ttf",
-            "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v$version/BIZUDPMincho-Bold.ttf",
-            "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v$version/BIZUDPMincho-Regular.ttf"
-        ]
+        "url": "https://github.com/googlefonts/morisawa-biz-ud-mincho/releases/download/v$version/morisawa-biz-ud-mincho-fonts.zip",
+        "extract_dir": "morisawa-biz-ud-mincho-fonts/fonts/ttf"
     },
     "installer": {
         "script": [
