@@ -444,4 +444,65 @@ Describe 'uninstaller のロック耐性とジャーナル退役' {
         }
         $script:Backup | Should -Not -Exist
     }
+
+    It '退役の Move-Item 自体が失敗すると、ループへ入る前に例外を投げ、ファイルもレジストリも一切変更しない（退役をループの後ろへ戻す回帰を検出する）' {
+        # このスイートの上の It は「失敗後にジャーナルが退役済みになっている」という
+        # 終了状態だけを見ている。だが per-entry の try/catch（既存の修正）は失敗が
+        # あってもループを最後まで走らせることを保証しているため、退役をループの
+        # 前に置いても後ろに置いても、その終了状態は区別できない。つまり上の It は
+        # 「try/catch がある」ことしか証明しておらず、退役の順序そのものは検出できない。
+        #
+        # 順序を直接検出するには、退役の Move-Item 自体を失敗させて「例外が投げられ、
+        # かつ 1 件も変更されていない」ことを確認すればよい。退役が先頭にあれば、
+        # 何も変更する前に例外で落ちるのでこの検証は通る。退役が末尾へ戻されていれば、
+        # ループは既に全ファイル・全レジストリを変更し終えてから退役に失敗するので、
+        # 「何も変更されていない」という検証が確実に落ちる
+        scoop install $script:Manifest 2>&1 | Out-Null
+
+        $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
+        $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+        $uninstallerText = $manifestObj.uninstaller.script -join "`r`n"
+
+        # backupDir 側のジャーナルが正として使われる。その退役先
+        # (scoop-font-state.retired.json) をあらかじめ「ディレクトリ」として
+        # 用意しておくだけでは、Move-Item -Force は「ディレクトリの中へ移動」を
+        # 試みて成功してしまう（実測で確認済み）。中に移動元と同じ名前
+        # (scoop-font-state.json) の「ディレクトリ」も置いておくと、-Force は
+        # ファイルの上書きは許すがディレクトリをファイルで置き換えることはできない
+        # ため、これで確実に Move-Item が失敗する
+        $retiredBlock = Join-Path $script:Backup 'scoop-font-state.retired.json'
+        New-Item $retiredBlock -ItemType Directory -Force | Out-Null
+        New-Item (Join-Path $retiredBlock 'scoop-font-state.json') -ItemType Directory -Force | Out-Null
+
+        $beforeHashes = @{}
+        foreach ($n in $script:Touched) {
+            $beforeHashes[$n] = (Get-FileHash -LiteralPath (Join-Path $script:FontDir $n)).Hash
+        }
+        $beforeReg = @{}
+        foreach ($rn in $script:AllRegNames) {
+            $beforeReg[$rn] = Get-FontRegValue -Name $rn
+        }
+
+        # uninstaller.script はこの2変数だけを呼び出し元スコープから読む
+        $app = 'biz-udgothic'
+        $dir = $versionDir
+        try {
+            { Invoke-Command ([scriptblock]::Create($uninstallerText)) } | Should -Throw
+
+            foreach ($n in $script:Touched) {
+                (Get-FileHash -LiteralPath (Join-Path $script:FontDir $n)).Hash | Should -Be $beforeHashes[$n]
+            }
+            foreach ($rn in $script:AllRegNames) {
+                Get-FontRegValue -Name $rn | Should -Be $beforeReg[$rn]
+            }
+
+            # ジャーナル本体もまだ退役されていないこと（Move-Item が完全に
+            # 失敗し、何も動かしていないことの直接的な証拠）
+            (Join-Path $script:Backup 'scoop-font-state.json') | Should -Exist
+        } finally {
+            # 自分で仕込んだ障害物を片付け、以降（次の BeforeEach / AfterAll）の
+            # 本物の scoop uninstall が正常に退役できる状態へ戻す
+            Remove-Item -LiteralPath $retiredBlock -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
