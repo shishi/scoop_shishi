@@ -2,6 +2,31 @@
     $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
     $script:ManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
         Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') })
+    # フォント以外も含めた全件。下の Describe はフォント専用の共有スクリプトを
+    # 見るので除外リストが要るが、bucket 全体に掛かる決まりはこちらで見る
+    $script:AllManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json')
+}
+
+Describe 'bucket 全体の静的検査' -Tag 'Static' {
+    # shovel の PR Validator は変更された manifest について Description と License を
+    # 検査する。フォント manifest の必須キー検査はフォント以外を除外しているので、
+    # tclock-win10 / umaumachecker / umaumacruise の 3 件が未記入のまま残っていた。
+    # 除外リストの外側に置いて、bucket に増える manifest すべてを網に掛ける
+    It '<_.BaseName> に description がある' -ForEach $script:AllManifestFiles {
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        $j.description | Should -Not -BeNullOrEmpty
+    }
+
+    It '<_.BaseName> に license がある' -ForEach $script:AllManifestFiles {
+        # license は文字列(SPDX 識別子)でも { identifier, url } のオブジェクトでもよい。
+        # オブジェクト形式で identifier が空だと Should -Not -BeNullOrEmpty は
+        # 通ってしまうので、識別子そのものを取り出して見る
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        $lic = $j.license
+        $id = if ($lic -is [string]) { $lic } else { $lic.identifier }
+        $id | Should -Not -BeNullOrEmpty
+    }
+
 }
 
 Describe 'manifest の静的検査' -Tag 'Static' {

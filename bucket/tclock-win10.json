@@ -1,5 +1,7 @@
 {
     "version": "5.4.1.1",
+    "description": "TClock-Win10 — Windows 10/11 のタスクバー時計を多機能化するツール。表示書式の変更とグラフ表示に対応",
+    "license": "GPL-3.0-only",
     "architecture": {
         "64bit": {
             "url": "https://github.com/MantisMountainMobile/TClock-Win10/releases/download/5.4.1.1/TClock-Win10_5411_64bit.zip",

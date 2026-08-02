@@ -1,5 +1,10 @@
 {
     "version": "1.20",
+    "description": "UmaUmaCruise — DMM 版ウマ娘のウィンドウを自動で検出し、イベント選択肢の効果を表示するツール",
+    "license": {
+        "identifier": "Freeware",
+        "url": "https://github.com/amate/UmaUmaCruise/blob/master/readme.md"
+    },
     "url": "https://github.com/amate/UmaUmaCruise/releases/download/v1.20/UmaUmaCruise_1.20.zip",
     "hash": "3cc78faee0238616737450d8cc8c723fcd90624791453c7f2c60adee14728035",
     "homepage": "https://github.com/amate/UmaUmaCruise",
