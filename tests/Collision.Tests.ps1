@@ -348,3 +348,82 @@ Describe '変更途中の失敗' {
         Get-FontRegValue -Name $script:RegName | Should -BeNullOrEmpty
     }
 }
+
+Describe 'uninstaller のロック耐性とジャーナル退役' {
+    BeforeEach { Reset-Case }
+
+    It 'ロックされた1件があっても残り3件は処理され、ジャーナルは退役し、解錠後の再インストール/再アンインストールで完全に消える' {
+        # pre_uninstall は「配置先を自分自身へ Rename-Item してみる」ことでロックを検出し、
+        # 失敗すると exit 1 でアンインストール全体（scoop-uninstall.ps1 の該当呼び出しそのもの）
+        # を止める。これは実測で確認済み: Rename-Item と Remove-Item はどちらも
+        # delete 共有権限を要求するため、uninstaller.script の Remove-Item を失敗させる
+        # ロック（'Open','Read','Read'。書き込み・削除のみ拒否）は pre_uninstall の
+        # Rename-Item も同じ理由で失敗させ、uninstaller.script の本体（今回 try/catch を
+        # 追加した箇所）へ到達する前に scoop uninstall biz-udgothic 全体が失敗して終わる。
+        # pre_uninstall は今回の修正対象ではなく、この不具合・修正はどちらも
+        # uninstaller.script の中だけで完結する。そのため、ロックを再現している間は
+        # uninstaller.script だけを manifest から取り出して直接実行し、対象の
+        # コード（try/catch と退役の順序）をそのまま検証する。ロックが無い区間の
+        # install/uninstall は通常どおり scoop コマンドを使い、scoop 自身の帳簿
+        # （app ディレクトリ・current ジャンクション）の整合はそちらに任せる。
+        scoop install $script:Manifest 2>&1 | Out-Null
+
+        # $dir は「今アンインストールしている版のディレクトリ」（例: ...\biz-udgothic\1.051）。
+        # scoop prefix が返す current ジャンクションの葉は 'current' であり、
+        # そのまま使うと uninstaller.script 内の Split-Path -Leaf でバージョン文字列を
+        # 取り違えるため、ジャンクションの実体を解決してから使う
+        $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
+
+        $lockedFile = 'BIZUDGothic-Regular.ttf'
+        $lockedPath = Join-Path $script:FontDir $lockedFile
+        $handle = [IO.File]::Open($lockedPath, 'Open', 'Read', 'Read')
+        try {
+            $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+            $uninstallerText = $manifestObj.uninstaller.script -join "`r`n"
+
+            # uninstaller.script はこの2変数だけを呼び出し元スコープから読む
+            $app = 'biz-udgothic'
+            $dir = $versionDir
+            { Invoke-Command ([scriptblock]::Create($uninstallerText)) } | Should -Not -Throw
+
+            # ロックされていない残り3件は処理された(ファイル削除・レジストリ削除)
+            $others = @($script:Touched | Where-Object { $_ -ne $lockedFile })
+            foreach ($n in $others) {
+                (Join-Path $script:FontDir $n) | Should -Not -Exist
+            }
+            # ロックされた1件はファイルの削除に失敗して残る
+            $lockedPath | Should -Exist
+
+            # ジャーナルは退役済み: アクティブな state.json は無く、retired.json がある
+            (Join-Path $script:Backup 'scoop-font-state.json') | Should -Not -Exist
+            (Join-Path $script:Backup 'scoop-font-state.retired.json') | Should -Exist
+
+            # 未解決のエントリがあるので退避ディレクトリ自体は生き残る
+            $script:Backup | Should -Exist
+        } finally {
+            $handle.Close()
+        }
+
+        # ロックを解いたので、scoop 自身の帳簿(app ディレクトリ・current ジャンクション)を
+        # 整えるために通常の uninstall を一度通す。このとき backupDir 側のジャーナルは
+        # 既に退役済みなので、uninstaller.script は app ディレクトリ側の写しを読み、
+        # ロックのため残っていたファイルとレジストリ登録の後始末を完了させる
+        scoop uninstall biz-udgothic 2>&1 | Out-Null
+
+        # ここが本題の検証: 修正前の実装では、中断で退役し損ねたジャーナルを次の
+        # install が「元から存在した(HadDest=true)」と誤読し、以後の uninstall は
+        # 復元に化けて何も削除しないまま成功を報告し続けた。今回の修正
+        # (try/catch で他のエントリを巻き添えにしない・退役を最初に無条件で行う)で
+        # その連鎖が断たれていることを、再インストール→再アンインストールで確認する
+        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop uninstall biz-udgothic 2>&1 | Out-Null
+
+        foreach ($n in $script:Touched) {
+            (Join-Path $script:FontDir $n) | Should -Not -Exist
+        }
+        foreach ($rn in $script:AllRegNames) {
+            Get-FontRegValue -Name $rn | Should -BeNullOrEmpty
+        }
+        $script:Backup | Should -Not -Exist
+    }
+}
