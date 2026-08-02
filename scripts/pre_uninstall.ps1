@@ -4,7 +4,7 @@ Get-ChildItem $dir -Recurse -Include '*.ttf', '*.otf' |
     Where-Object { $_.BaseName -notmatch '35' } |
     ForEach-Object {
         $dest = Join-Path $fontDir $_.Name
-        if (-not (Test-Path $dest)) { return }
+        if (-not (Test-Path -LiteralPath $dest)) { return }
         # catch の中では $_ は ErrorRecord になり、パイプラインの FileInfo ではなくなる
         # (実測: catch 内で $_.Name は空)。メッセージに使う名前は try へ入る前に控えておく
         $name = $_.Name

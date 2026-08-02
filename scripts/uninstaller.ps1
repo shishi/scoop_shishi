@@ -26,6 +26,12 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wPa
     Write-Host "フォント通知 API を用意できなかった: $_" -Foreground Yellow
 }
 
+# 実際に外せたパスの記録。復元したファイルはここから戻す。
+# 「外そうとした回数」ではなく「効いた回数」でなければならない。
+# RemoveFontResourceW は参照が 0 になると false を返して飽和するが、
+# AddFontResourceW は飽和しないため、空振りぶんまで Add すると参照が純増する
+$removedOk = New-Object Collections.ArrayList
+
 # 通知の失敗で uninstall を落とさない。ファイルとレジストリは既に片付いているので、
 # 最悪でも「再ログオンするまで一覧に残る」で済む
 $notifyFonts = {
@@ -41,7 +47,10 @@ $notifyFonts = {
         # (実測: プロセス A が 2 回 Add して終了した後、別プロセス B の
         # RemoveFontResourceW が 2 回 true を返した)。false になるまで外すと、
         # 同じファイルを使っている第三者アプリの参照まで奪ってしまう
-        try { [void][ScoopFont.GdiV1]::RemoveFontResourceW($p) }
+        try {
+            # 返り値を捨ててはいけない。true が「実際に 1 減った」の唯一の証拠
+            if ([ScoopFont.GdiV1]::RemoveFontResourceW($p)) { [void]$removedOk.Add($p) }
+        }
         catch { Write-Host "フォントの登録解除に失敗した: $p : $_" -Foreground Yellow }
     }
     foreach ($p in $Add) {
@@ -67,13 +76,16 @@ $notifyFonts = {
 # Get-FileHash は "being used by another process" で落ちる)。これをループの
 # 手前に素で置くと、1 件のロックで「記録は退役済み・中身は何も片付いていない」
 # という最悪の状態で終わる。読めないものは「自分のものではない」と見なす
+# 返り値は 3 値。true なら自分のファイル、false なら別物、null なら読めなかった。
+# $null も条件式では偽なので Where-Object などはそのまま書ける。
+# 「別物なので残す」と「読めないので残す」は手当ての方向が真逆なので分ける
 $isOurFile = {
     param([string]$Path, [string]$Hash)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-    try { return (Get-FileHash -LiteralPath $Path).Hash -eq $Hash }
+    try { return ((Get-FileHash -LiteralPath $Path).Hash -eq $Hash) }
     catch {
-        Write-Host "ハッシュを取得できない。自分のファイルではないものとして扱う: $Path : $_" -Foreground Yellow
-        return $false
+        Write-Host "ハッシュを取得できない(ロック中か権限不足): $Path : $_" -Foreground Yellow
+        return $null
     }
 }
 
@@ -90,8 +102,8 @@ $appVersion = Split-Path $dir -Leaf
 # journal（退避先）が正。app ディレクトリ側は写しなので、無い場合の予備として使う
 $backupDir = "$env:LOCALAPPDATA\scoop-font-backup\$app-$appVersion"
 $statePath = Join-Path $backupDir 'scoop-font-state.json'
-if (-not (Test-Path $statePath)) { $statePath = Join-Path $dir 'scoop-font-state.json' }
-if (-not (Test-Path $statePath)) {
+if (-not (Test-Path -LiteralPath $statePath)) { $statePath = Join-Path $dir 'scoop-font-state.json' }
+if (-not (Test-Path -LiteralPath $statePath)) {
     # 何も無いなら黙って戻ってよいが、退避ディレクトリまたはアプリディレクトリに
     # 記録が残っている場合は「中断された uninstall がある」という意味なので、
     # 場所を明示して気づけるようにする。退役済みの記録は「見つかった方」を
@@ -101,7 +113,7 @@ if (-not (Test-Path $statePath)) {
     Write-Host "              $dir\scoop-font-state.json" -Foreground Yellow
     $foundAny = $false
     foreach ($d in $backupDir, $dir) {
-        if (-not (Test-Path $d)) { continue }
+        if (-not (Test-Path -LiteralPath $d)) { continue }
         $found = @(Get-ChildItem $d -Filter '*.json' -ErrorAction SilentlyContinue)
         if ($found.Count -eq 0) { continue }
         if (-not $foundAny) {
@@ -174,14 +186,21 @@ foreach ($e in $entries) {
     $destExists = Test-Path -LiteralPath $e.Dest
     # ロックされていると Get-FileHash は落ちる。素で書くとこのエントリの
     # 残り(一時ファイルの後始末)まで飛ぶので、判定は $isOurFile を通す
-    $destIsOurs = & $isOurFile $e.Dest $e.Hash
+    $ours = & $isOurFile $e.Dest $e.Hash
+    $destIsOurs = ($ours -eq $true)
 
     if ($destExists -and -not $destIsOurs) {
-        Write-Host "ファイルは残す: $($e.File) は install 後に置き換えられている" -Foreground Yellow
+        if ($null -eq $ours) {
+            # 「置き換えられている」と出すと手当ての方向が逆になる。
+            # こちらは使用中のアプリを閉じて再実行すれば片付く
+            Write-Host "ファイルは残す: $($e.File) を読めなかった(使用中か権限不足)。閉じてから再実行すること" -Foreground Yellow
+        } else {
+            Write-Host "ファイルは残す: $($e.File) は install 後に置き換えられている" -Foreground Yellow
+        }
         [void]$unresolved.Add($e.File)
     } elseif ($e.HadDest) {
         # 配置先が消えていても復元する。退避を残したまま消すと元ファイルを失う
-        if (-not ($e.Backup -and (Test-Path $e.Backup))) {
+        if (-not ($e.Backup -and (Test-Path -LiteralPath $e.Backup))) {
             Write-Host "復元できない: $($e.File) の退避が見つからない" -Foreground Yellow
             [void]$unresolved.Add($e.File)
         } elseif ((Get-FileHash -LiteralPath $e.Backup).Hash -ne $e.PrevDestHash) {
@@ -195,23 +214,24 @@ foreach ($e in $entries) {
     }
 
     # 中断で取り残された一時ファイル
-    if (Test-Path "$($e.Dest).scoop-tmp") { Remove-Item -LiteralPath "$($e.Dest).scoop-tmp" -Force }
+    if (Test-Path -LiteralPath "$($e.Dest).scoop-tmp") { Remove-Item -LiteralPath "$($e.Dest).scoop-tmp" -Force }
     } catch {
         Write-Host "処理できなかった: $($e.File): $_" -Foreground Yellow
         [void]$unresolved.Add($e.File)
     }
 }
 
-# 登録し直すのは、さっき外した分のうちまだファイルが在るもの＝復元された元ファイルだけ。
-# 「実在する配置先すべて」にすると、外していないファイルにまで参照を足すことになる。
-# 判断を「消したつもり」ではなく実状態で行うので、途中で失敗した項目が混ざっていても揃う
-& $notifyFonts -Add @($mine | Where-Object { Test-Path -LiteralPath $_ }) -Broadcast
+# 登録し直すのは「実際に外せた分」のうち、まだファイルが在るもの＝復元された元ファイル。
+# $mine で数えてはいけない。install 側の Add が失敗していた場合、Remove は空振りして
+# false を返すので、$mine を戻すと外していない参照を足すことになる。
+# $removedOk には true が返ったものだけが入っているので、そのまま戻せば収支が合う
+& $notifyFonts -Add @($removedOk | Where-Object { Test-Path -LiteralPath $_ }) -Broadcast
 
 # 記録は既にループ前で退役させてある。ここでは退避の後始末だけを判断する
 if ($unresolved.Count -eq 0) {
     # 全件片付いた。退避はもう不要なので丸ごと消し、消えたことを確認する
     Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-    if (Test-Path $backupDir) { throw "退避 $backupDir を削除できなかった。手で消すこと（残すと次回の install が誤動作する）" }
+    if (Test-Path -LiteralPath $backupDir) { throw "退避 $backupDir を削除できなかった。手で消すこと（残すと次回の install が誤動作する）" }
 } else {
     # 触れなかったファイルの退避は消せない。記録は既に退役済み
     Write-Host "未解決のファイルがある。退避は $backupDir に残す:" -Foreground Yellow

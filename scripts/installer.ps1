@@ -61,6 +61,13 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wPa
     Write-Host "フォント通知 API を用意できなかった: $_" -Foreground Yellow
 }
 
+# 実際に外せたパスの記録。巻き戻しでここから戻す。
+# 「外そうとした回数」ではなく「効いた回数」でなければならない。
+# RemoveFontResourceW は参照が 0 になると false を返して飽和するが、
+# AddFontResourceW は飽和しない。呼んだ回数で数えると、空振りした Remove のぶんまで
+# Add してしまい、触ってもいないファイルの参照が純増する(レビューで実測)
+$removedOk = New-Object Collections.ArrayList
+
 # 通知の失敗で install を落とさない。フォントは既に置かれているので、
 # 最悪でも「再ログオンするまで反映されない」で済む。ここで throw すると
 # 成功した変更まで巻き戻すことになり、実害の方が大きい
@@ -78,7 +85,11 @@ $notifyFonts = {
         # RemoveFontResourceW が 2 回 true を返した)。false になるまで外すと、
         # 同じファイルを使っている第三者アプリの参照まで奪ってしまう。
         # install 1 回につき Add 1 回・uninstall 1 回につき Remove 1 回で釣り合う
-        try { [void][ScoopFont.GdiV1]::RemoveFontResourceW($p) }
+        try {
+            # 返り値を捨ててはいけない。true が「実際に 1 減った」の唯一の証拠で、
+            # 巻き戻しで戻すべき対象はこれだけ
+            if ([ScoopFont.GdiV1]::RemoveFontResourceW($p)) { [void]$removedOk.Add($p) }
+        }
         catch { Write-Host "フォントの登録解除に失敗した: $p : $_" -Foreground Yellow }
     }
     foreach ($p in $Add) {
@@ -106,13 +117,16 @@ $notifyFonts = {
 # Get-FileHash は "being used by another process" で落ちる)。これを巻き戻しや
 # uninstall の入口に素で置くと、1 件のロックで後続の処理が丸ごと飛ぶ。
 # 読めないものは「自分のものではない」と見なして安全側へ倒す
+# 返り値は 3 値。true なら自分のファイル、false なら別物、null なら読めなかった。
+# $null も条件式では偽なので Where-Object などはそのまま書ける。
+# 呼び出し側が「別物」と「読めない」で案内を変えられるように分けてある
 $isOurFile = {
     param([string]$Path, [string]$Hash)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
-    try { return (Get-FileHash -LiteralPath $Path).Hash -eq $Hash }
+    try { return ((Get-FileHash -LiteralPath $Path).Hash -eq $Hash) }
     catch {
-        Write-Host "ハッシュを取得できない。自分のファイルではないものとして扱う: $Path : $_" -Foreground Yellow
-        return $false
+        Write-Host "ハッシュを取得できない(ロック中か権限不足): $Path : $_" -Foreground Yellow
+        return $null
     }
 }
 
@@ -129,7 +143,7 @@ $journalPath = Join-Path $backupDir 'scoop-font-state.json'   # app ディレク
 $saveState = {
     $json = $plan | ConvertTo-Json -Depth 3
     foreach ($p in @($statePath, $journalPath)) {
-        if (-not (Test-Path (Split-Path $p))) { continue }
+        if (-not (Test-Path -LiteralPath (Split-Path $p))) { continue }
         $json | Set-Content -LiteralPath "$p.tmp" -Encoding UTF8
         Move-Item -LiteralPath "$p.tmp" -Destination $p -Force
     }
@@ -137,7 +151,7 @@ $saveState = {
 
 # 前回の試行が強制終了で残した記録があれば、それを「元の状態」の正とする
 $prior = $null
-if (Test-Path $journalPath) {
+if (Test-Path -LiteralPath $journalPath) {
     $prior = Get-Content -LiteralPath $journalPath -Raw -Encoding UTF8 | ConvertFrom-Json
     Write-Host "前回の試行の記録が残っている。元の状態はそちらを使う: $journalPath" -Foreground Yellow
 }
@@ -153,11 +167,11 @@ foreach ($f in (Get-ChildItem $dir -Recurse -Include '*.ttf', '*.otf' |
     # 配置先がディレクトリだと Copy-Item は $dest.scoop-tmp へ書き込むため素通りし、
     # 続く Move-Item -Force はディレクトリの中へ書き込んでエラーにならない（実測）。
     # 検知せずに進めると、レジストリだけディレクトリを指す壊れた状態が「成功」として残る
-    if ((Test-Path $dest) -and -not (Test-Path $dest -PathType Leaf)) {
+    if ((Test-Path -LiteralPath $dest) -and -not (Test-Path -LiteralPath $dest -PathType Leaf)) {
         throw "配置先がファイルではない: $dest"
     }
     $prop = Get-ItemProperty -Path $regKey -Name $regName -ErrorAction SilentlyContinue
-    $hadDest = Test-Path $dest
+    $hadDest = Test-Path -LiteralPath $dest
 
     # 前回の記録があれば、今の実状態ではなくそちらを「元の状態」とする。
     # 前回の試行が既に上書きしているので、今見えているのは自分が置いたファイルかもしれない
@@ -184,8 +198,6 @@ New-Item $backupDir -ItemType Directory -Force | Out-Null   # 控えの置き場
 & $saveState
 
 # --- 3. 変更。各段階の直前に Phase を進めて保存する ---
-# ここで初期化しておく。try の中で代入する前に落ちると catch から見えなくなる
-$preRemoved = @()
 try {
     New-Item $fontDir -ItemType Directory -Force | Out-Null
     $acl = Get-Acl $fontDir
@@ -200,7 +212,7 @@ try {
     # 存在しない。New-ItemProperty -Force は値の作成・上書きは Force するが、
     # 親キーが無い場合の作成まではしない(実測: キー不在だと
     # "Cannot find path ... because it does not exist" で失敗する)。ここで先に作る
-    if (-not (Test-Path $regKey)) { New-Item -Path $regKey -Force | Out-Null }
+    if (-not (Test-Path -LiteralPath $regKey)) { New-Item -Path $regKey -Force | Out-Null }
 
     # 上書きする配置先は、書き込む前に GDI の登録を外しておく。
     # 参照カウントが 0 でないパスにファイルを被せても GDI は読み直さず、古い中身を
@@ -214,16 +226,16 @@ try {
     # 判断は所有権の記録($_.HadDest)ではなく「今そこにファイルが在るか」。
     # HadDest は前回の試行のジャーナルを引き継ぐことがあり、今の実状態とずれる。
     # ずれたまま Remove を飛ばすと、この後の Add と釣り合わず参照が二重に残る
-    $preRemoved = @($plan | Where-Object { Test-Path -LiteralPath $_.Dest -PathType Leaf } |
-                    ForEach-Object { $_.Dest })
-    & $notifyFonts -Remove $preRemoved
+    & $notifyFonts -Remove @($plan |
+        Where-Object { Test-Path -LiteralPath $_.Dest -PathType Leaf } |
+        ForEach-Object { $_.Dest })
 
     foreach ($e in $plan) {
         # 変更に入る前に印を付けて保存する。途中でプロセスが落ちても対象だと分かる
         $e.Phase = 'mutating'; & $saveState
 
         # 既にある退避は絶対に上書きしない。前回の試行が残した本物の元ファイルかもしれない
-        if ($e.Backup -and -not (Test-Path $e.Backup)) {
+        if ($e.Backup -and -not (Test-Path -LiteralPath $e.Backup)) {
             New-Item $backupDir -ItemType Directory -Force | Out-Null
             Copy-Item -LiteralPath $e.Dest -Destination "$($e.Backup).tmp" -Force
             Move-Item -LiteralPath "$($e.Backup).tmp" -Destination $e.Backup -Force
@@ -271,7 +283,7 @@ try {
                 else { Remove-ItemProperty -Path $regKey -Name $e.RegName -Force -ErrorAction SilentlyContinue }
             }
 
-            if (Test-Path "$($e.Dest).scoop-tmp") { Remove-Item -LiteralPath "$($e.Dest).scoop-tmp" -Force }
+            if (Test-Path -LiteralPath "$($e.Dest).scoop-tmp") { Remove-Item -LiteralPath "$($e.Dest).scoop-tmp" -Force }
 
             $destExists = Test-Path -LiteralPath $e.Dest
             # ロックされていると Get-FileHash は落ちる。判定は $isOurFile を通す
@@ -279,7 +291,7 @@ try {
             if ($destExists -and -not $destIsOurs) {
                 # 第三者のファイル。触らない
             } elseif ($e.HadDest) {
-                if (-not ($e.Backup -and (Test-Path $e.Backup) -and
+                if (-not ($e.Backup -and (Test-Path -LiteralPath $e.Backup) -and
                           (Get-FileHash -LiteralPath $e.Backup).Hash -eq $e.PrevDestHash)) {
                     throw "退避が無いか壊れていて復元できない"
                 }
@@ -296,15 +308,14 @@ try {
     }
     & $saveState
 
-    # 外した回数と同じ回数だけ戻す。これが守るべき不変条件。
-    # ループ前に $preRemoved の全件を 1 回ずつ、巻き戻しで $mine を 1 回ずつ外している。
-    # 戻す側を $mine だけにすると、$preRemoved にしか入っていないパス
-    # (印は付いたがファイルには触れていない件、planned のまま残った件)の参照が
-    # 1 減ったまま返らない。第三者アプリが登録していた既存フォントが、
-    # ディスクを 1 バイトも変えていないのにセッションから消えることになる。
-    # 配列に同じパスを 2 回入れれば Add も 2 回走るので、回数がそのまま揃う
+    # 「実際に外せた分」だけを戻す。これが守るべき不変条件。
+    # 呼んだ回数で数えてはいけない。RemoveFontResourceW は参照が 0 になると
+    # false を返して飽和するのに、AddFontResourceW は飽和しない。
+    # 同じパスがループ前と巻き戻しの両方で Remove 対象になると、
+    # 実効 1 減・2 増で純増する(レビューで実測)。$removedOk には true が
+    # 返ったものだけが入っているので、そのまま戻せば必ず収支が合う
     $restore = New-Object Collections.ArrayList
-    foreach ($p in @($preRemoved) + @($mine)) {
+    foreach ($p in @($removedOk)) {
         if ($p -and (Test-Path -LiteralPath $p)) { [void]$restore.Add($p) }
     }
     & $notifyFonts -Add $restore -Broadcast

@@ -200,13 +200,21 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         }
     }
 
-    It 'installer が巻き戻しで外した回数ぶんを戻す' {
-        # ループ前に $preRemoved を外し、巻き戻しで $mine を外している。
-        # 戻す側を $mine だけにすると $preRemoved ぶんの参照が返らず、
-        # ディスクを変えていないのに第三者のフォントがセッションから消える
-        $s = ($script:Fonts[0].Json.installer.script -join "`n")
-        $s | Should -Match '\$preRemoved\s*=\s*@\('
-        $s | Should -Match '@\(\$preRemoved\)\s*\+\s*@\(\$mine\)'
+    It '実際に外せた分だけを戻す（呼んだ回数で数えていない）' {
+        # RemoveFontResourceW は参照が 0 になると false を返して飽和するのに、
+        # AddFontResourceW は飽和しない。呼んだ回数で数えると、空振りした
+        # Remove のぶんまで Add してしまい、触ってもいないファイルの参照が純増する。
+        # その参照はセッションから二度と外せない
+        foreach ($key in 'installer', 'uninstaller') {
+            $s = ($script:Fonts[0].Json.$key.script -join "`n")
+            # 返り値を捨てず、true のときだけ記録していること
+            $s | Should -Match 'if \(\[ScoopFont\.GdiV\d+\]::RemoveFontResourceW\(\$p\)\)\s*\{\s*\[void\]\$removedOk\.Add\(\$p\)'
+            # 戻す側が $removedOk 由来であること
+            $s | Should -Match '@\(\$removedOk'
+        }
+        # 戻す側に $mine や $plan を直接使っていないこと(収支が合わなくなる)
+        $unin = ($script:Fonts[0].Json.uninstaller.script -join "`n")
+        $unin | Should -Not -Match '&\s+\$notifyFonts\s+-Add\s+@\(\$mine'
     }
 
     It 'installer が変更のあとに Add してからブロードキャストする' {
@@ -217,6 +225,22 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         $addAt  = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Add\s+@\(\$plan.*-Broadcast' })
         $loopAt | Should -BeGreaterThan -1
         $addAt  | Should -BeGreaterThan $loopAt
+    }
+
+    It 'Test-Path が常に -LiteralPath 付きで呼ばれている' {
+        # 配置先はフォントのファイル名から組み立てる。Google の可変フォント配布
+        # (NotoSansJP[wght].ttf 形式)のように角括弧が入ると、素の Test-Path は
+        # ワイルドカードとして解釈して誤判定する。とくに退避の存在判定を誤ると、
+        # 既存の退避(第三者の元ファイル)を今の配置先で上書きしてしまう。
+        # 現在の 228 ファイルに角括弧は無いので、これは潜在的な備え
+        foreach ($key in 'installer', 'pre_uninstall', 'uninstaller') {
+            $block = if ($key -eq 'pre_uninstall') { $script:Fonts[0].Json.$key }
+                     else { $script:Fonts[0].Json.$key.script }
+            $bad = @($block | Where-Object {
+                $_ -notmatch '^\s*#' -and $_ -match 'Test-Path\s+(?!-)'
+            })
+            ($bad -join ' / ') | Should -BeNullOrEmpty -Because "$key に -LiteralPath 無しの Test-Path がある"
+        }
     }
 
     It 'P/Invoke の型名に版番号が付いている' {
@@ -234,7 +258,12 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         # 古い中身を配り続ける(実測)。正常系にも Remove が要る。
         # ループより前にあることまで見る
         $lines = @($script:Fonts[0].Json.installer.script)
-        $removeAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Remove\s+\$preRemoved' })
+        # 「$notifyFonts -Remove」の存在だけを見ると、渡す配列を空にする変異を
+        # 見逃す(実測: 変数を空配列に潰しても緑だった)。$plan から実在する
+        # 配置先を集めていることまで含めて照合する
+        $removeAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Remove\s+@\(\$plan' })
+        $gateAt   = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match 'Where-Object \{ Test-Path -LiteralPath \$_\.Dest -PathType Leaf \}' })
+        $gateAt | Should -BeGreaterThan $removeAt -Because '上書き前 Remove の対象が「今そこにファイルが在るか」で絞られていない'
         $loopAt   = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\s*foreach \(\$e in \$plan\)' })
         $removeAt | Should -BeGreaterThan -1
         $loopAt   | Should -BeGreaterThan -1
@@ -300,7 +329,10 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         # 関数スコープの中でも Cannot overwrite variable PID で落ちる
         $reserved = 'pid', 'host', 'error', 'true', 'false', 'null', 'pshome', 'shellid', 'executioncontext'
         $j = $script:Fonts[0].Json
-        $all = (@($j.installer.script) + @($j.pre_uninstall) + @($j.uninstaller.script)) -join "`n"
+        # コメント行は除く。「$true = 自分のファイル」のような説明書きに反応して
+        # 誤検出する(実測)。コメントは代入しないので、除いても検出力は落ちない
+        $all = (@($j.installer.script) + @($j.pre_uninstall) + @($j.uninstaller.script) |
+                Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
         $bad = @($reserved | Where-Object { $all -match ('\$' + $_ + '\s*=[^=]') })
         ($bad -join ', ') | Should -BeNullOrEmpty
     }
