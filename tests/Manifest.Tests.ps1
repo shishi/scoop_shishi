@@ -140,11 +140,11 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         $uninCalls.Count | Should -Be 2
 
         # 定義本体の方も残っていること
-        $inst | Should -Match '\[ScoopFont\.Gdi\]::AddFontResourceW\('
-        $unin | Should -Match '\[ScoopFont\.Gdi\]::RemoveFontResourceW\('
+        $inst | Should -Match '\[ScoopFont\.GdiV\d+\]::AddFontResourceW\('
+        $unin | Should -Match '\[ScoopFont\.GdiV\d+\]::RemoveFontResourceW\('
         # WM_FONTCHANGE = 0x1D。これを配らないと起動済みのアプリが一覧を作り直さない
         foreach ($s in $inst, $unin) {
-            $s | Should -Match '\[ScoopFont\.Gdi\]::SendMessageTimeout\('
+            $s | Should -Match '\[ScoopFont\.GdiV\d+\]::SendMessageTimeout\('
             $s | Should -Match '0x1D'
         }
     }
@@ -160,12 +160,81 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         }
     }
 
+    It '外す対象を「自分が置いたファイル」に絞っている' {
+        # 参照カウントはセッション共有なので、自分のものでない配置先まで外すと
+        # 第三者アプリの参照を奪う。ハッシュ照合を撤回しても振る舞いテストでは
+        # 落ちない(GDI の参照カウントを観測するテストが無い)ため静的に固定する
+        foreach ($key in 'installer', 'uninstaller') {
+            $s = ($script:Fonts[0].Json.$key.script -join "`n")
+            $s | Should -Match '\$mine\s*=\s*@\('
+            $s | Should -Match '&\s+\$isOurFile\s+\$_\.Dest\s+\$_\.Hash'
+        }
+    }
+
+    It 'ハッシュ照合が例外を投げない形になっている' {
+        # $ErrorActionPreference = 'Stop' の下では、ロックされたファイルへの
+        # Get-FileHash は terminating error になる。巻き戻しや uninstall の
+        # 入口でこれが飛ぶと、1 件のロックで後続が丸ごと止まる。
+        #
+        # スクリプト全体に対する `(?s)...try.*?Get-FileHash.*?catch` のような
+        # 照合では歯が無い。遅延量指定子がブロックを飛び越えて、後方にある
+        # 無関係な try/catch に届いてしまう(実測: try/catch を外しても緑だった)。
+        # $isOurFile の本体だけを切り出してから見る
+        foreach ($key in 'installer', 'uninstaller') {
+            $lines = @($script:Fonts[0].Json.$key.script)
+            $start = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\$isOurFile\s*=\s*\{' })
+            $start | Should -BeGreaterThan -1 -Because "$key に `$isOurFile の定義が無い"
+
+            # 列 0 の閉じ括弧が本体の終わり。中の閉じ括弧は必ず字下げされている
+            $end = -1
+            for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -eq '}') { $end = $i; break }
+            }
+            $end | Should -BeGreaterThan $start -Because "$key の `$isOurFile の終わりが見つからない"
+
+            $body = ($lines[$start..$end] -join "`n")
+            $body | Should -Match 'Get-FileHash'
+            # [^}]* で閉じ括弧を跨がせない。try の直下に Get-FileHash があること
+            $body | Should -Match '(?s)try\s*\{[^}]*Get-FileHash'
+            $body | Should -Match 'catch\s*\{'
+        }
+    }
+
+    It 'installer が巻き戻しで外した回数ぶんを戻す' {
+        # ループ前に $preRemoved を外し、巻き戻しで $mine を外している。
+        # 戻す側を $mine だけにすると $preRemoved ぶんの参照が返らず、
+        # ディスクを変えていないのに第三者のフォントがセッションから消える
+        $s = ($script:Fonts[0].Json.installer.script -join "`n")
+        $s | Should -Match '\$preRemoved\s*=\s*@\('
+        $s | Should -Match '@\(\$preRemoved\)\s*\+\s*@\(\$mine\)'
+    }
+
+    It 'installer が変更のあとに Add してからブロードキャストする' {
+        # 件数だけ固定していると、正常系の -Add を -Remove に書き換えても
+        # 静的には気づけない(実測)。ループより後ろにあることまで見る
+        $lines = @($script:Fonts[0].Json.installer.script)
+        $loopAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\s*foreach \(\$e in \$plan\)' })
+        $addAt  = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Add\s+@\(\$plan.*-Broadcast' })
+        $loopAt | Should -BeGreaterThan -1
+        $addAt  | Should -BeGreaterThan $loopAt
+    }
+
+    It 'P/Invoke の型名に版番号が付いている' {
+        # scoop update は同一プロセスで旧版 uninstaller → 新版 installer を走らせる。
+        # 型名が同じだと新版の Add-Type が飛ばされ、新版のコードが旧版の定義で動く
+        foreach ($key in 'installer', 'uninstaller') {
+            $s = ($script:Fonts[0].Json.$key.script -join "`n")
+            $s | Should -Match "Add-Type -Namespace 'ScoopFont' -Name 'GdiV\d+'"
+            $s | Should -Not -Match "\[ScoopFont\.Gdi\]::"
+        }
+    }
+
     It 'installer が上書きの前に登録を外す' {
         # 参照カウントが 0 でないパスにファイルを被せても GDI は読み直さず、
         # 古い中身を配り続ける(実測)。正常系にも Remove が要る。
         # ループより前にあることまで見る
         $lines = @($script:Fonts[0].Json.installer.script)
-        $removeAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Remove.*HadDest' })
+        $removeAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '&\s+\$notifyFonts\s+-Remove\s+\$preRemoved' })
         $loopAt   = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^\s*foreach \(\$e in \$plan\)' })
         $removeAt | Should -BeGreaterThan -1
         $loopAt   | Should -BeGreaterThan -1

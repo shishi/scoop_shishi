@@ -5,9 +5,14 @@ $ErrorActionPreference = 'Stop'
 # 消したフォントを RemoveFontResourceW で現在のセッションのフォントテーブルから外し、
 # WM_FONTCHANGE を配って起動済みのアプリにも再列挙させる。これが無いと
 # アンインストール後も再ログオンするまでフォント一覧に残り続ける
+#
+# 型名に版番号を付けておく。scoop update は同一プロセスで旧版 uninstaller →
+# 新版 installer の順に走らせるため、名前が同じだと新版の Add-Type が
+# 「もうある」と判断されて飛ばされ、新版のコードが旧版の P/Invoke 定義で動く。
+# 定義を変えるときはここの番号を上げること
 try {
-    if (-not ('ScoopFont.Gdi' -as [type])) {
-        Add-Type -Namespace 'ScoopFont' -Name 'Gdi' -MemberDefinition @'
+    if (-not ('ScoopFont.GdiV1' -as [type])) {
+        Add-Type -Namespace 'ScoopFont' -Name 'GdiV1' -MemberDefinition @'
 [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
 public static extern int AddFontResourceW(string path);
 [DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
@@ -25,7 +30,7 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wPa
 # 最悪でも「再ログオンするまで一覧に残る」で済む
 $notifyFonts = {
     param([string[]]$Add, [string[]]$Remove, [switch]$Broadcast)
-    if (-not ('ScoopFont.Gdi' -as [type])) { return }
+    if (-not ('ScoopFont.GdiV1' -as [type])) { return }
     # 1 パスの失敗で残りを巻き添えにしない。諦めた分は再ログオンまで
     # 一覧に残るだけで、ファイルとレジストリは正しい状態のまま
     foreach ($p in $Remove) {
@@ -36,12 +41,12 @@ $notifyFonts = {
         # (実測: プロセス A が 2 回 Add して終了した後、別プロセス B の
         # RemoveFontResourceW が 2 回 true を返した)。false になるまで外すと、
         # 同じファイルを使っている第三者アプリの参照まで奪ってしまう
-        try { [void][ScoopFont.Gdi]::RemoveFontResourceW($p) }
+        try { [void][ScoopFont.GdiV1]::RemoveFontResourceW($p) }
         catch { Write-Host "フォントの登録解除に失敗した: $p : $_" -Foreground Yellow }
     }
     foreach ($p in $Add) {
         try {
-            if ([ScoopFont.Gdi]::AddFontResourceW($p) -eq 0) {
+            if ([ScoopFont.GdiV1]::AddFontResourceW($p) -eq 0) {
                 Write-Host "GDI へ追加できなかった: $p" -Foreground Yellow
             }
         } catch { Write-Host "フォントの登録に失敗した: $p : $_" -Foreground Yellow }
@@ -51,8 +56,24 @@ $notifyFonts = {
         # タイムアウトはウィンドウ 1 枚ごとに効くので、増減を済ませてから 1 回だけ配る
         try {
             $res = [IntPtr]::Zero
-            [void][ScoopFont.Gdi]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 3000, [ref]$res)
+            [void][ScoopFont.GdiV1]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 3000, [ref]$res)
         } catch { Write-Host "WM_FONTCHANGE の配信に失敗した: $_" -Foreground Yellow }
+    }
+}
+
+# 配置先に在るのが自分の置いたファイルかを、例外を投げずに判定する。
+# $ErrorActionPreference = 'Stop' の下では、排他オープンされたファイルに対する
+# Get-FileHash は terminating error になる(実測: Test-Path は True を返すが
+# Get-FileHash は "being used by another process" で落ちる)。これをループの
+# 手前に素で置くと、1 件のロックで「記録は退役済み・中身は何も片付いていない」
+# という最悪の状態で終わる。読めないものは「自分のものではない」と見なす
+$isOurFile = {
+    param([string]$Path, [string]$Hash)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    try { return (Get-FileHash -LiteralPath $Path).Hash -eq $Hash }
+    catch {
+        Write-Host "ハッシュを取得できない。自分のファイルではないものとして扱う: $Path : $_" -Foreground Yellow
+        return $false
     }
 }
 
@@ -124,10 +145,7 @@ $touched = @($entries | Where-Object { $_.Phase -ne 'planned' -and $_.Phase -ne 
 # 対象は「今そこに在るのが自分の置いたファイル」に限る。install 後に第三者が
 # 置き換えた配置先まで外すと、相手の参照を奪うことになる(後のループでも
 # そういうファイルは「残す」と判断している)
-$mine = @($touched | Where-Object {
-    (Test-Path -LiteralPath $_.Dest -PathType Leaf) -and
-    (Get-FileHash -LiteralPath $_.Dest).Hash -eq $_.Hash
-} | ForEach-Object { $_.Dest })
+$mine = @($touched | Where-Object { & $isOurFile $_.Dest $_.Hash } | ForEach-Object { $_.Dest })
 & $notifyFonts -Remove $mine
 
 foreach ($e in $entries) {
@@ -153,8 +171,10 @@ foreach ($e in $entries) {
     }
 
     # --- ファイル ---
-    $destExists = Test-Path $e.Dest
-    $destIsOurs = $destExists -and (Get-FileHash -LiteralPath $e.Dest).Hash -eq $e.Hash
+    $destExists = Test-Path -LiteralPath $e.Dest
+    # ロックされていると Get-FileHash は落ちる。素で書くとこのエントリの
+    # 残り(一時ファイルの後始末)まで飛ぶので、判定は $isOurFile を通す
+    $destIsOurs = & $isOurFile $e.Dest $e.Hash
 
     if ($destExists -and -not $destIsOurs) {
         Write-Host "ファイルは残す: $($e.File) は install 後に置き換えられている" -Foreground Yellow
