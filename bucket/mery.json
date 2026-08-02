@@ -1,14 +1,16 @@
 {
-    "version": "2.6.14",
+    "version": "3.8.8",
+    "description": "Mery — Windows 用のタブ切り替え型テキストエディター",
+    "license": "Freeware",
     "homepage": "https://www.haijin-boys.com/wiki/",
     "architecture": {
         "64bit": {
-            "url": "http://www.haijin-boys.com/download/Mery-x64-2.6.14.zip",
-            "hash": "8ed74d9946ee8e6ea49895700c58498359f4dd7bfa68cf4340b30b234011ca88"
+            "url": "http://www.haijin-boys.com/download/Mery-x64-3.8.8.zip",
+            "hash": "6121d6e645199617f826fa5ea69f2207944971273d0aebe2a6f03660dff860c5"
         },
         "32bit": {
-            "url": "http://www.haijin-boys.com/download/Mery-2.6.14.zip",
-            "hash": "6b7dd2678d12e29bd6573284c27107c1f8dbb05735b5b8c1ca84d7c0ad801304"
+            "url": "http://www.haijin-boys.com/download/Mery-3.8.8.zip",
+            "hash": "08bed0c70cfe980eefb1eb18406940fa7a79d15a037b892be89ea6ccdde6c397"
         }
     },
     "extract_dir": "Mery",
@@ -27,8 +29,8 @@
     ],
     "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
     "checkver": {
-        "url": "https://www.haijin-boys.com/software/mery",
-        "re": "Ver ([\\d.]+)"
+        "url": "https://www.haijin-boys.com/feed",
+        "regex": "Mery[^<]*?(?:Ver\\.?\\s*|v)([0-9]+\\.[0-9]+\\.[0-9]+)"
     },
     "autoupdate": {
         "architecture": {
