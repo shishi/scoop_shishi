@@ -1,17 +1,15 @@
-"""仕様書の 3 つの PowerShell ブロックを bucket/*.json へ同期する。
+"""scripts/*.ps1 の 3 つの PowerShell スクリプトを bucket/*.json へ同期する。
 
 manifest は自己完結した JSON でなければならないためスクリプトは 16 箇所に複製される。
-手で写すと必ずずれるので、原本は仕様書の 1 箇所だけとし、ここから機械的に配る。
+手で写すと必ずずれるので、原本は scripts/ 以下の 3 ファイルだけとし、ここから機械的に配る。
 Excavator が書き換えるのは version / url / hash / extract_dir なので競合しない。
 """
 import io
 import json
 import os
-import re
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SPEC = os.path.join(REPO, 'docs', 'superpowers', 'specs',
-                    '2026-07-31-scoop-font-bucket-design.md')
+SCRIPTS_DIR = os.path.join(REPO, 'scripts')
 BUCKET = os.path.join(REPO, 'bucket')
 
 MARKERS = {
@@ -22,19 +20,19 @@ MARKERS = {
 
 
 def load_blocks():
-    text = io.open(SPEC, encoding='utf-8').read()
-    blocks = re.findall(r'```powershell\n(.*?)```', text, re.S)
     found = {}
-    for body in blocks:
-        first = body.splitlines()[0]
-        for key, marker in MARKERS.items():
-            if first.startswith(marker):
-                if key in found:
-                    raise SystemExit('マーカー %s が仕様書に複数ある' % marker)
-                found[key] = body.rstrip('\n').split('\n')
-    missing = set(MARKERS) - set(found)
-    if missing:
-        raise SystemExit('仕様書に見つからないマーカー: %s' % ', '.join(sorted(missing)))
+    for key, marker in MARKERS.items():
+        path = os.path.join(SCRIPTS_DIR, key + '.ps1')
+        if not os.path.isfile(path):
+            raise SystemExit('原本が見つからない: %s' % path)
+        # 原本は日本語コメントを含むため UTF-8 BOM 付きで保存されている
+        # (PowerShell 5.1 が BOM 無し UTF-8 を cp932 と誤解釈するため)。
+        # manifest へ注入する内容に BOM を残してはいけないので utf-8-sig で剥がして読む
+        text = io.open(path, encoding='utf-8-sig').read()
+        first = text.splitlines()[0] if text else ''
+        if not first.startswith(marker):
+            raise SystemExit('%s の先頭行がマーカー %s で始まっていない' % (path, marker))
+        found[key] = text.rstrip('\n').split('\n')
     return found
 
 
