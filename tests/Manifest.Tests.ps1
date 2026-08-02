@@ -116,6 +116,38 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         ($changed -join ', ') | Should -BeNullOrEmpty
     }
 
+    It 'installer と uninstaller が OS へフォントの増減を通知する' {
+        # レジストリ登録とファイル配置だけでは、あとから起動したプロセスからも
+        # DirectWrite にフォントが見えない(実測: plemoljp は HKCU に 48 件登録済み・
+        # ファイルも実在の状態でファミリごと見えず、どのアプリからも使えなかった)。
+        # 振る舞いは FontNotify.Tests.ps1 が検証する。ここでは将来のリファクタで
+        # この呼び出しが黙って落ちないよう、静的にも留め金を掛けておく
+        $j = $script:Fonts[0].Json
+        $inst = ($j.installer.script -join "`n")
+        $unin = ($j.uninstaller.script -join "`n")
+
+        $inst | Should -Match 'AddFontResourceW'
+        $unin | Should -Match 'RemoveFontResourceW'
+        # WM_FONTCHANGE = 0x1D。これを配らないと起動済みのアプリが一覧を作り直さない
+        foreach ($s in $inst, $unin) {
+            $s | Should -Match 'SendMessageTimeout'
+            $s | Should -Match '0x1D'
+        }
+    }
+
+    It '通知の失敗が install/uninstall を巻き添えにしない' {
+        # フォント自体は既に置かれている。通知できないことを理由に throw すると
+        # 成功した変更まで巻き戻すことになり、実害の方が大きい。
+        # $notifyFonts の本体と Add-Type の両方が try/catch の中にあること
+        foreach ($key in 'installer', 'uninstaller') {
+            $s = ($script:Fonts[0].Json.$key.script -join "`n")
+            # Add-Type は環境によっては失敗しうるので、それ自体を包んである
+            $s | Should -Match '(?s)try\s*\{[^}]*Add-Type\s+-Namespace\s+''ScoopFont'''
+            # 通知本体も包んである。catch 側は Write-Host で警告するだけ
+            $s | Should -Match '(?s)\$notifyFonts\s*=\s*\{.*?try\s*\{.*?\}\s*catch\s*\{[^}]*Write-Host'
+        }
+    }
+
     It '共通スクリプトが読み取り専用の自動変数へ代入していない' {
         # $pid への代入で全 manifest が動かなくなった実績がある。
         # 関数スコープの中でも Cannot overwrite variable PID で落ちる

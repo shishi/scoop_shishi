@@ -1,6 +1,52 @@
 ﻿# scoop:uninstaller  ここから 16 manifest 共通
 $ErrorActionPreference = 'Stop'
 
+# --- OS へフォントの増減を知らせる仕組み。installer と同じ内容を持つ ---
+# 消したフォントを RemoveFontResourceW で現在のセッションのフォントテーブルから外し、
+# WM_FONTCHANGE を配って起動済みのアプリにも再列挙させる。これが無いと
+# アンインストール後も再ログオンするまでフォント一覧に残り続ける
+try {
+    if (-not ('ScoopFont.Gdi' -as [type])) {
+        Add-Type -Namespace 'ScoopFont' -Name 'Gdi' -MemberDefinition @'
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+public static extern int AddFontResourceW(string path);
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+public static extern bool RemoveFontResourceW(string path);
+[DllImport("user32.dll", CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam,
+    IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+'@
+    }
+} catch {
+    Write-Host "フォント通知 API を用意できなかった: $_" -Foreground Yellow
+}
+
+# 通知の失敗で uninstall を落とさない。ファイルとレジストリは既に片付いているので、
+# 最悪でも「再ログオンするまで一覧に残る」で済む
+$notifyFonts = {
+    param([string[]]$Add, [string[]]$Remove, [switch]$Broadcast)
+    if (-not ('ScoopFont.Gdi' -as [type])) { return }
+    try {
+        # Remove は「ファイルがまだ在るうち」に呼ぶこと。消した後だとパスを解決できず
+        # 即 false が返り、セッションのフォントテーブルに残り続ける
+        # (実測: 削除後は 0 回 true / 削除前なら 3 回 true を返して一覧から消えた)。
+        # 参照カウントは同一セッションで install のたびに増えるので、
+        # false になるまで外す。上限は暴走よけで、実際は数回で終わる
+        foreach ($p in $Remove) {
+            $n = 0
+            while ($n -lt 32 -and [ScoopFont.Gdi]::RemoveFontResourceW($p)) { $n++ }
+        }
+        foreach ($p in $Add) { [void][ScoopFont.Gdi]::AddFontResourceW($p) }
+        # HWND_BROADCAST = 0xffff / WM_FONTCHANGE = 0x1D / SMTO_ABORTIFHUNG = 2
+        if ($Broadcast) {
+            $res = [IntPtr]::Zero
+            [void][ScoopFont.Gdi]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 3000, [ref]$res)
+        }
+    } catch {
+        Write-Host "フォントの削除通知に失敗した。再ログオンまで一覧に残る場合がある: $_" -Foreground Yellow
+    }
+}
+
 # $version はここでは信用できない(実測。scoop update は scoop-update.ps1 の中で
 # $version = $manifest.version を新版へ再代入した後、その同じスコープのまま
 # 旧版の pre_uninstall/uninstaller フックを呼ぶ。Invoke-HookScript は
@@ -58,6 +104,15 @@ $unresolved = New-Object Collections.ArrayList   # 触れなかったエント�
 $retired = Join-Path (Split-Path $statePath) 'scoop-font-state.retired.json'
 Move-Item -LiteralPath $statePath -Destination $retired -Force
 
+# 触る対象。Phase が planned / rolledback のものは install が何もしていないので除く
+$touched = @($entries | Where-Object { $_.Phase -ne 'planned' -and $_.Phase -ne 'rolledback' })
+
+# ファイルを消す「前」に GDI 側の登録を外す。消した後では RemoveFontResourceW が
+# パスを解決できず false を返すだけで、セッションのフォントテーブルに残り続ける。
+# 実測では uninstall 後もファイル・レジストリが消えているのにアプリからは
+# フォントが見えたままだった。復元されたファイルはループの後で登録し直す
+& $notifyFonts -Remove @($touched | ForEach-Object { $_.Dest })
+
 foreach ($e in $entries) {
     if ($e.Phase -eq 'planned' -or $e.Phase -eq 'rolledback') { continue }
     # 1 件の失敗で残り全部と退役処理を巻き添えにしない。
@@ -109,6 +164,11 @@ foreach ($e in $entries) {
         [void]$unresolved.Add($e.File)
     }
 }
+
+# 復元したファイルと、install 後に第三者が置き換えたので残したファイルを登録し直し、
+# 増減をまとめて 1 回だけ通知する。判断は「消したつもり」ではなく
+# 「配置先が実在するか」で行うので、途中で失敗した項目が混ざっていても実状態に揃う
+& $notifyFonts -Add @($touched | Where-Object { Test-Path $_.Dest } | ForEach-Object { $_.Dest }) -Broadcast
 
 # 記録は既にループ前で退役させてある。ここでは退避の後始末だけを判断する
 if ($unresolved.Count -eq 0) {

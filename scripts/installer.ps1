@@ -33,6 +33,58 @@ function Get-FontFullName([string]$Path) {
     return $best
 }
 
+# --- OS へフォントの増減を知らせる仕組み ---
+# レジストリ登録とファイル配置だけでは、あとから起動したプロセスからも
+# DirectWrite にフォントが見えなかった(実測)。AddFontResourceW で現在のセッションの
+# フォントテーブルへ加え、WM_FONTCHANGE を配って起動済みのアプリにも再列挙させる。
+# これが無いと再ログオンするまで使えない
+try {
+    if (-not ('ScoopFont.Gdi' -as [type])) {
+        Add-Type -Namespace 'ScoopFont' -Name 'Gdi' -MemberDefinition @'
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+public static extern int AddFontResourceW(string path);
+[DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+public static extern bool RemoveFontResourceW(string path);
+[DllImport("user32.dll", CharSet = CharSet.Auto)]
+public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam,
+    IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+'@
+    }
+} catch {
+    # Add-Type はコンパイラを呼ぶので環境によっては失敗しうる。
+    # 通知できないだけで install 自体は成立するため、ここでは止めない
+    Write-Host "フォント通知 API を用意できなかった: $_" -Foreground Yellow
+}
+
+# 通知の失敗で install を落とさない。フォントは既に置かれているので、
+# 最悪でも「再ログオンするまで反映されない」で済む。ここで throw すると
+# 成功した変更まで巻き戻すことになり、実害の方が大きい
+$notifyFonts = {
+    param([string[]]$Add, [string[]]$Remove, [switch]$Broadcast)
+    if (-not ('ScoopFont.Gdi' -as [type])) { return }
+    try {
+        # Remove は「ファイルがまだ在るうち」に呼ぶこと。消した後だとパスを解決できず
+        # 即 false が返り、セッションのフォントテーブルに残り続ける
+        # (実測: 削除後は 0 回 true / 削除前なら 3 回 true を返して一覧から消えた)。
+        # 参照カウントは同一セッションで install のたびに増えるので、
+        # false になるまで外す。上限は暴走よけで、実際は数回で終わる
+        foreach ($p in $Remove) {
+            $n = 0
+            while ($n -lt 32 -and [ScoopFont.Gdi]::RemoveFontResourceW($p)) { $n++ }
+        }
+        foreach ($p in $Add) { [void][ScoopFont.Gdi]::AddFontResourceW($p) }
+        # HWND_BROADCAST = 0xffff / WM_FONTCHANGE = 0x1D / SMTO_ABORTIFHUNG = 2。
+        # 応答しないアプリで固まらないよう Timeout 付きで送る。
+        # 増減を一通り済ませてから 1 回だけ配る
+        if ($Broadcast) {
+            $res = [IntPtr]::Zero
+            [void][ScoopFont.Gdi]::SendMessageTimeout([IntPtr]0xffff, 0x1D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 3000, [ref]$res)
+        }
+    } catch {
+        Write-Host "フォントの追加通知に失敗した。再ログオンまで反映されない場合がある: $_" -Foreground Yellow
+    }
+}
+
 # global インストールは対象外。中途半端に対応するより明確に拒否する
 if ($global) { throw "$app は per-user インストール専用。-g を外して実行すること。" }
 
@@ -138,10 +190,19 @@ try {
 
         $e.Phase = 'done'; & $saveState
     }
+
+    # 変更が全部通ってから 1 回だけ通知する。1 件ごとにブロードキャストすると
+    # 起動中のアプリがフォント数だけ再列挙して無駄に重い
+    & $notifyFonts -Add @($plan | ForEach-Object { $_.Dest }) -Broadcast
 } catch {
     # --- 4. 自力で巻き戻す。scoop は失敗した install に対して uninstaller を呼ばない ---
     $original = $_
     $failed = New-Object Collections.ArrayList
+
+    # 巻き戻しでファイルを消す/元へ差し替える前に、GDI 側の登録を外しておく。
+    # 消した後では RemoveFontResourceW がパスを解決できず、外れないまま残る。
+    # 巻き戻しの後で「まだ実在するもの」を登録し直して辻褄を合わせる
+    & $notifyFonts -Remove @($plan | Where-Object { $_.Phase -ne 'planned' } | ForEach-Object { $_.Dest })
     for ($i = $plan.Count - 1; $i -ge 0; $i--) {     # 逆順で戻す
         $e = $plan[$i]
         if ($e.Phase -eq 'planned') { continue }
@@ -177,6 +238,12 @@ try {
         }
     }
     & $saveState
+
+    # 復元されたファイルと、こちらが手を出さなかった第三者のファイルを登録し直す。
+    # 判断は Phase ではなく「配置先が実在するか」で行う。巻き戻しに失敗した項目が
+    # 混ざっていても、実際に残っているものだけが登録された状態になる
+    & $notifyFonts -Add @($plan | Where-Object { Test-Path $_.Dest } | ForEach-Object { $_.Dest }) -Broadcast
+
     if ($failed.Count) {
         Write-Host "巻き戻しに失敗した項目がある。$statePath を見て手で復旧すること:" -Foreground Red
         $failed | ForEach-Object { Write-Host "  $_" -Foreground Red }
