@@ -219,7 +219,12 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         # 元ファイルを誰も参照していなかったなら戻してはいけない
         $unin = ($script:Fonts[0].Json.uninstaller.script -join "`n")
         $unin | Should -Not -Match '&\s+\$notifyFonts\s+-Add\s+@\(\$mine'
-        $unin | Should -Match '\$_\.HadGdiRef\s+-and\s+\(\$removedOk -contains \$_\.Dest\)'
+        $unin | Should -Match '\$hadRef\s+-and\s+\(\$removedOk -contains \$_\.Dest\)'
+
+        # 記録に HadGdiRef が「無い」場合を false と同一視しない。
+        # ConvertFrom-Json は存在しないプロパティを $null にするので、この項目を
+        # 書いていなかった版の記録を読むと区別が付かず、第三者の参照を消す
+        $unin | Should -Match "PSObject\.Properties\.Name -contains 'HadGdiRef'"
     }
 
     It 'installer が変更のあとに Add してからブロードキャストする' {
@@ -241,8 +246,12 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         foreach ($key in 'installer', 'pre_uninstall', 'uninstaller') {
             $block = if ($key -eq 'pre_uninstall') { $script:Fonts[0].Json.$key }
                      else { $script:Fonts[0].Json.$key.script }
+            # 「ダッシュで始まっていれば OK」では -Path が素通りする。
+            # -Path はワイルドカードを解釈するので、このテストが防ぎたい失敗が
+            # そのまま起きる(実測: -LiteralPath を -Path に変えても緑だった)。
+            # ホワイトリストにして -LiteralPath だけを許す
             $bad = @($block | Where-Object {
-                $_ -notmatch '^\s*#' -and $_ -match 'Test-Path\s+(?!-)'
+                $_ -notmatch '^\s*#' -and $_ -match 'Test-Path(?!\s+-LiteralPath\b)'
             })
             ($bad -join ' / ') | Should -BeNullOrEmpty -Because "$key に -LiteralPath 無しの Test-Path がある"
         }

@@ -230,8 +230,18 @@ foreach ($e in $entries) {
 #
 # $mine で数えるのも誤り。install 側の Add が失敗していた場合、Remove は空振りして
 # false を返すので、$mine を戻すと外していない参照を足すことになる
+#
+# HadGdiRef が記録に「無い」場合を false と同一視してはいけない。
+# ConvertFrom-Json は存在しないプロパティを $null にするので、この項目を
+# 書いていなかった版の記録を読むと、区別が付かないまま「参照は無かった」と
+# 判断してしまう。元ファイルはディスクに戻るのに GDI 参照だけ戻らず、
+# 第三者のフォントがセッションから消える(実測: 記録から HadGdiRef を
+# 抜くと refcount が 1 -> 0 になった)。
+# 不明なときは HadDest に倒す。参照を 1 つ余分に足す害は再ログオンで消えるが、
+# 第三者の参照を消す害は相手のアプリが壊れる。軽い方を選ぶ
 $readd = @($touched | Where-Object {
-    $_.HadGdiRef -and ($removedOk -contains $_.Dest) -and (Test-Path -LiteralPath $_.Dest)
+    $hadRef = if ($_.PSObject.Properties.Name -contains 'HadGdiRef') { $_.HadGdiRef } else { $_.HadDest }
+    $hadRef -and ($removedOk -contains $_.Dest) -and (Test-Path -LiteralPath $_.Dest)
 } | ForEach-Object { $_.Dest })
 & $notifyFonts -Add $readd -Broadcast
 

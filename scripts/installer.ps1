@@ -191,8 +191,14 @@ foreach ($f in (Get-ChildItem $dir -Recurse -Include '*.ttf', '*.otf' |
         RegRoot = $regRoot
         # 配置先が元から GDI に登録されていたか。上書き前の Remove が true を
         # 返したかで分かる。uninstall で元ファイルを戻したあと登録し直すべきかの
-        # 判断に要る。これが無いと、誰も参照していなかったファイルに参照が生える
-        HadGdiRef = if ($old) { $old.HadGdiRef } else { $false }
+        # 判断に要る。これが無いと、誰も参照していなかったファイルに参照が生える。
+        #
+        # HadDest と違い、ここは $old から引き継がない。毎回この場で測り直す。
+        # 前回の試行が上書き前 Remove を成功させた直後に強制終了し、配置先が
+        # 消えている状態で入れ直すと、引き継いだ true が今の実状態とずれ、
+        # uninstall で誰も持っていない参照が 1 つ生える(実測)。
+        # 引き継いで正しくなる経路が無い
+        HadGdiRef = $false
         Phase   = 'planned'   # planned -> mutating -> done（巻き戻したら rolledback）
     })
 }

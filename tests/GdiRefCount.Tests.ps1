@@ -31,13 +31,19 @@
 public static System.Collections.Generic.Dictionary<string,int> Counts =
     new System.Collections.Generic.Dictionary<string,int>(System.StringComparer.OrdinalIgnoreCase);
 
+// 実 GDI に合わせて、パスが解決できなければ何もしない。
+// この分岐が無いと「ファイルを消してから外す」退行を振る舞いテストが見逃す
+// (実測: 実 GDI は削除済みパスに対して Remove が false・カウント不変、
+//  存在しないパスへの Add は 0 で増えない)
 public static int AddFontResourceW(string path) {
+    if (!System.IO.File.Exists(path)) { return 0; }
     if (!Counts.ContainsKey(path)) { Counts[path] = 0; }
     Counts[path] = Counts[path] + 1;
     return 1;
 }
 
 public static bool RemoveFontResourceW(string path) {
+    if (!System.IO.File.Exists(path)) { return false; }
     if (!Counts.ContainsKey(path) || Counts[path] <= 0) { return false; }
     Counts[path] = Counts[path] - 1;
     return true;
@@ -80,12 +86,24 @@ public static System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint msg, Sys
         [IO.File]::WriteAllBytes($Dest, $bytes)
     }
 
-    # 素材は OS 同梱の BIZ UDGothic。scoop の管理外なので都合がよい
-    $script:SeedFont = "$env:WINDIR\Fonts\BIZUDGothic-Regular.ttf"
-    if (-not (Test-Path -LiteralPath $script:SeedFont)) {
-        $script:SeedFont = @(Get-ChildItem "$env:WINDIR\Fonts" -Filter '*.ttf' |
-            Where-Object { $_.Length -lt 20MB } | Select-Object -First 1).FullName
+    # 素材は OS 同梱のフォント。scoop の管理外なので都合がよい。
+    # 置換元のファミリ名を知っている必要があるので、任意の ttf を拾う
+    # フォールバックにはできない(拾った先に 'BIZ UDGothic' は無く、
+    # 全ケースが「name テーブルに無い」で死ぬ)。候補と名前を対にして持つ
+    $script:SeedFont = $null
+    foreach ($c in @(
+        @{ File = 'BIZUDGothic-Regular.ttf'; Family = 'BIZ UDGothic' },
+        @{ File = 'segoeui.ttf';             Family = 'Segoe UI' },
+        @{ File = 'arial.ttf';               Family = 'Arial' }
+    )) {
+        $path = Join-Path "$env:WINDIR\Fonts" $c.File
+        if (Test-Path -LiteralPath $path) {
+            $script:SeedFont = $path
+            $script:SeedFamily = $c.Family
+            break
+        }
     }
+    if (-not $script:SeedFont) { throw '素材にできるフォントが見つからない' }
 
     # --- 2/3. サンドボックス ---
     $script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) "gdi-refcount-$([guid]::NewGuid())"
@@ -134,12 +152,22 @@ public static System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint msg, Sys
 
     $script:FontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
 
+    # 置換後の名前は置換前と同じバイト長でなければならない。素材によって
+    # ファミリ名の長さが違うので、短い識別子を素材の長さへ詰める
+    $script:TagFor = {
+        param([string]$Token)
+        $len = $script:SeedFamily.Length
+        if ($Token.Length -gt $len) { throw "識別子が素材のファミリ名より長い: $Token" }
+        $Token.PadRight($len, 'x')
+    }
+
     # 1 ケースぶんの下ごしらえ。app ディレクトリに 1 本だけ置く
     $script:NewCase = {
-        param([string]$Name, [string]$FamilyTag)
+        param([string]$Name, [string]$Token)
         $appDir = Join-Path $script:Sandbox "$Name\1.0.0"
         New-Item -ItemType Directory -Path $appDir -Force | Out-Null
-        & $script:MakeFont $script:SeedFont (Join-Path $appDir 'RefTest-Regular.ttf') 'BIZ UDGothic' $FamilyTag
+        & $script:MakeFont $script:SeedFont (Join-Path $appDir 'RefTest-Regular.ttf') `
+            $script:SeedFamily (& $script:TagFor $Token)
         return $appDir
     }
 }
@@ -164,6 +192,17 @@ AfterAll {
 Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
 
     BeforeEach {
+        # 破壊的操作の前に毎回サンドボックスを確認する。BeforeAll で 1 回だけ
+        # 確かめても、以降の BeforeEach は無条件に Remove-Item -Recurse を撃つ。
+        # 張り替えが外れていたら、このマシンの実フォント登録が黙って消える
+        # (-ErrorAction SilentlyContinue なので失敗すら見えない)
+        if ((Get-PSDrive HKCU).Root -ne $script:SandboxRegRoot) {
+            throw 'HKCU: がサンドボックスを指していない。実レジストリを消さないため中止する'
+        }
+        if ($script:FontDir -notlike "$script:Sandbox*") {
+            throw "フォントディレクトリがサンドボックス外を指している: $script:FontDir"
+        }
+
         # ケース間で状態を持ち越さない。カウンタも配置先もレジストリも毎回まっさらにする。
         # ここを怠ると、前のケースが残した参照が次のケースの期待値に化けて、
         # どのケースが本当に壊れているのか分からなくなる(実測でそうなった)
@@ -175,7 +214,7 @@ Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
     }
 
     It '新規 install で 1 になり、uninstall で 0 に戻る' {
-        $appDir = & $script:NewCase 'refcase1' 'Zz RefOne A '
+        $appDir = & $script:NewCase 'refcase1' 'Zq1'
         $dest = Join-Path $script:FontDir 'RefTest-Regular.ttf'
 
         & $script:RunInstaller $appDir 'refcase1' '1.0.0'
@@ -187,10 +226,10 @@ Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
 
     It '第三者が参照している既存ファイルを上書きしても収支が動かない' {
         # 配置先に別のフォントが既にあり、誰かが AddFontResourceW 済みという状況
-        $appDir = & $script:NewCase 'refcase2' 'Zz RefTwo A '
+        $appDir = & $script:NewCase 'refcase2' 'Zq2'
         $dest = Join-Path $script:FontDir 'RefTest-Regular.ttf'
         New-Item -ItemType Directory -Path $script:FontDir -Force | Out-Null
-        & $script:MakeFont $script:SeedFont $dest 'BIZ UDGothic' 'Zz Third  A '
+        & $script:MakeFont $script:SeedFont $dest $script:SeedFamily (& $script:TagFor 'Zt1')
         [void][ScoopStub.GdiV1]::AddFontResourceW($dest)
         (& $script:RefCount $dest) | Should -Be 1
 
@@ -204,10 +243,10 @@ Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
     It '誰も参照していない既存ファイルを上書きしても参照が生えない' {
         # 空振りした Remove のぶんまで Add すると、ここで 0 -> 1 以上になる。
         # 「呼んだ回数」で数えていた実装はこの経路で純増していた
-        $appDir = & $script:NewCase 'refcase3' 'Zz RefThr A '
+        $appDir = & $script:NewCase 'refcase3' 'Zq3'
         $dest = Join-Path $script:FontDir 'RefTest-Regular.ttf'
         New-Item -ItemType Directory -Path $script:FontDir -Force | Out-Null
-        & $script:MakeFont $script:SeedFont $dest 'BIZ UDGothic' 'Zz Third  B '
+        & $script:MakeFont $script:SeedFont $dest $script:SeedFamily (& $script:TagFor 'Zt2')
         (& $script:RefCount $dest) | Should -Be 0
 
         & $script:RunInstaller $appDir 'refcase3' '1.0.0'
@@ -217,13 +256,46 @@ Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
         (& $script:RefCount $dest) | Should -Be 0 -Because '復元した元ファイルは誰も参照していなかった'
     }
 
+    It 'HadGdiRef を書いていない旧い記録でも第三者の参照を返す' {
+        # ConvertFrom-Json は存在しないプロパティを $null にする。これを
+        # 「参照は無かった」と読むと、元ファイルはディスクに戻るのに GDI 参照
+        # だけ戻らず、第三者のフォントがセッションから消える。
+        # この項目を書いていなかった版で入れたものが実際に手元に 40 件あった
+        $appDir = & $script:NewCase 'refcase5' 'Zq5'
+        $dest = Join-Path $script:FontDir 'RefTest-Regular.ttf'
+        New-Item -ItemType Directory -Path $script:FontDir -Force | Out-Null
+        & $script:MakeFont $script:SeedFont $dest $script:SeedFamily (& $script:TagFor 'Zt5')
+        [void][ScoopStub.GdiV1]::AddFontResourceW($dest)
+
+        & $script:RunInstaller $appDir 'refcase5' '1.0.0'
+        (& $script:RefCount $dest) | Should -Be 1
+
+        # 記録から HadGdiRef を落として「旧い版が書いた記録」を作る
+        $states = @(
+            (Join-Path $appDir 'scoop-font-state.json'),
+            (Join-Path "$env:LOCALAPPDATA\scoop-font-backup\refcase5-1.0.0" 'scoop-font-state.json')
+        )
+        foreach ($sp in $states) {
+            if (-not (Test-Path -LiteralPath $sp)) { continue }
+            $entries = @(Get-Content -LiteralPath $sp -Raw -Encoding UTF8 | ConvertFrom-Json |
+                ForEach-Object { $_ | Select-Object -Property * -ExcludeProperty HadGdiRef })
+            ($entries | ConvertTo-Json -Depth 3) | Set-Content -LiteralPath $sp -Encoding UTF8
+        }
+        # 落ちていることを確かめてから進む。落ちていないと検証にならない
+        $check = Get-Content -LiteralPath $states[1] -Raw -Encoding UTF8 | ConvertFrom-Json
+        @($check)[0].PSObject.Properties.Name | Should -Not -Contain 'HadGdiRef'
+
+        & $script:RunUninstaller $appDir 'refcase5' '1.0.0'
+        (& $script:RefCount $dest) | Should -Be 1 -Because '不明なときは第三者の参照を消さない側に倒す'
+    }
+
     It 'install が失敗して巻き戻しても第三者の参照が減らない' {
         # 巻き戻しの補償が抜けていると、ここで 1 -> 0 になる。
         # ディスクは元どおりなのにセッションからフォントが消える経路
-        $appDir = & $script:NewCase 'refcase4' 'Zz RefFor A '
+        $appDir = & $script:NewCase 'refcase4' 'Zq4'
         $dest = Join-Path $script:FontDir 'RefTest-Regular.ttf'
         New-Item -ItemType Directory -Path $script:FontDir -Force | Out-Null
-        & $script:MakeFont $script:SeedFont $dest 'BIZ UDGothic' 'Zz Third  C '
+        & $script:MakeFont $script:SeedFont $dest $script:SeedFamily (& $script:TagFor 'Zt3')
         [void][ScoopStub.GdiV1]::AddFontResourceW($dest)
 
         # 共有を Read にする。下調べの Get-FileHash と退避の Copy-Item は通り、
