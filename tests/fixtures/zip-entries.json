@@ -1,0 +1,299 @@
+{
+  "biz-udgothic": {
+    "files": [
+      "BIZUDGothic-Bold.ttf",
+      "BIZUDGothic-Regular.ttf",
+      "BIZUDPGothic-Bold.ttf",
+      "BIZUDPGothic-Regular.ttf"
+    ],
+    "version": "1.051"
+  },
+  "biz-udmincho": {
+    "files": [
+      "BIZUDMincho-Bold.ttf",
+      "BIZUDMincho-Regular.ttf",
+      "BIZUDPMincho-Bold.ttf",
+      "BIZUDPMincho-Regular.ttf"
+    ],
+    "version": "1.06"
+  },
+  "bizin-gothic": {
+    "files": [
+      "BizinGothic-Bold.ttf",
+      "BizinGothic-Regular.ttf"
+    ],
+    "version": "0.0.4"
+  },
+  "bizin-gothic-discord": {
+    "files": [
+      "BizinGothicDiscord-Bold.ttf",
+      "BizinGothicDiscord-Regular.ttf"
+    ],
+    "version": "0.0.4"
+  },
+  "bizin-gothic-nf": {
+    "files": [
+      "BizinGothicDiscordNF-Bold.ttf",
+      "BizinGothicDiscordNF-Regular.ttf",
+      "BizinGothicNF-Bold.ttf",
+      "BizinGothicNF-Regular.ttf"
+    ],
+    "version": "0.0.4"
+  },
+  "bizter": {
+    "files": [
+      "BIZTER-Bold.ttf",
+      "BIZTER-Regular.ttf"
+    ],
+    "version": "0.0.2"
+  },
+  "hackgen": {
+    "files": [
+      "HackGen-Bold.ttf",
+      "HackGen-Regular.ttf",
+      "HackGen35-Bold.ttf",
+      "HackGen35-Regular.ttf",
+      "HackGen35Console-Bold.ttf",
+      "HackGen35Console-Regular.ttf",
+      "HackGenConsole-Bold.ttf",
+      "HackGenConsole-Regular.ttf"
+    ],
+    "version": "2.10.0"
+  },
+  "hackgen-nf": {
+    "files": [
+      "HackGen35ConsoleNF-Bold.ttf",
+      "HackGen35ConsoleNF-Regular.ttf",
+      "HackGenConsoleNF-Bold.ttf",
+      "HackGenConsoleNF-Regular.ttf"
+    ],
+    "version": "2.10.0"
+  },
+  "noto-color-emoji": {
+    "files": [
+      "Noto-COLRv1.ttf"
+    ],
+    "version": "2.051"
+  },
+  "noto-sans-jp": {
+    "files": [
+      "NotoSansJP-Black.otf",
+      "NotoSansJP-Bold.otf",
+      "NotoSansJP-DemiLight.otf",
+      "NotoSansJP-Light.otf",
+      "NotoSansJP-Medium.otf",
+      "NotoSansJP-Regular.otf",
+      "NotoSansJP-Thin.otf"
+    ],
+    "version": "2.004"
+  },
+  "noto-serif-jp": {
+    "files": [
+      "NotoSerifJP-Black.otf",
+      "NotoSerifJP-Bold.otf",
+      "NotoSerifJP-ExtraLight.otf",
+      "NotoSerifJP-Light.otf",
+      "NotoSerifJP-Medium.otf",
+      "NotoSerifJP-Regular.otf",
+      "NotoSerifJP-SemiBold.otf"
+    ],
+    "version": "2.003"
+  },
+  "notonoto": {
+    "files": [
+      "NOTONOTO-Black.ttf",
+      "NOTONOTO-Bold.ttf",
+      "NOTONOTO-ExtraBold.ttf",
+      "NOTONOTO-ExtraLight.ttf",
+      "NOTONOTO-Light.ttf",
+      "NOTONOTO-Medium.ttf",
+      "NOTONOTO-Regular.ttf",
+      "NOTONOTO-SemiBold.ttf",
+      "NOTONOTO-Thin.ttf",
+      "NOTONOTO35-Black.ttf",
+      "NOTONOTO35-Bold.ttf",
+      "NOTONOTO35-ExtraBold.ttf",
+      "NOTONOTO35-ExtraLight.ttf",
+      "NOTONOTO35-Light.ttf",
+      "NOTONOTO35-Medium.ttf",
+      "NOTONOTO35-Regular.ttf",
+      "NOTONOTO35-SemiBold.ttf",
+      "NOTONOTO35-Thin.ttf",
+      "NOTONOTO35Console-Black.ttf",
+      "NOTONOTO35Console-Bold.ttf",
+      "NOTONOTO35Console-ExtraBold.ttf",
+      "NOTONOTO35Console-ExtraLight.ttf",
+      "NOTONOTO35Console-Light.ttf",
+      "NOTONOTO35Console-Medium.ttf",
+      "NOTONOTO35Console-Regular.ttf",
+      "NOTONOTO35Console-SemiBold.ttf",
+      "NOTONOTO35Console-Thin.ttf",
+      "NOTONOTOConsole-Black.ttf",
+      "NOTONOTOConsole-Bold.ttf",
+      "NOTONOTOConsole-ExtraBold.ttf",
+      "NOTONOTOConsole-ExtraLight.ttf",
+      "NOTONOTOConsole-Light.ttf",
+      "NOTONOTOConsole-Medium.ttf",
+      "NOTONOTOConsole-Regular.ttf",
+      "NOTONOTOConsole-SemiBold.ttf",
+      "NOTONOTOConsole-Thin.ttf"
+    ],
+    "version": "0.0.3"
+  },
+  "plemoljp": {
+    "files": [
+      "PlemolJP-Bold.ttf",
+      "PlemolJP-BoldItalic.ttf",
+      "PlemolJP-ExtraLight.ttf",
+      "PlemolJP-ExtraLightItalic.ttf",
+      "PlemolJP-Italic.ttf",
+      "PlemolJP-Light.ttf",
+      "PlemolJP-LightItalic.ttf",
+      "PlemolJP-Medium.ttf",
+      "PlemolJP-MediumItalic.ttf",
+      "PlemolJP-Regular.ttf",
+      "PlemolJP-SemiBold.ttf",
+      "PlemolJP-SemiBoldItalic.ttf",
+      "PlemolJP-Text.ttf",
+      "PlemolJP-TextItalic.ttf",
+      "PlemolJP-Thin.ttf",
+      "PlemolJP-ThinItalic.ttf",
+      "PlemolJP35-Bold.ttf",
+      "PlemolJP35-BoldItalic.ttf",
+      "PlemolJP35-ExtraLight.ttf",
+      "PlemolJP35-ExtraLightItalic.ttf",
+      "PlemolJP35-Italic.ttf",
+      "PlemolJP35-Light.ttf",
+      "PlemolJP35-LightItalic.ttf",
+      "PlemolJP35-Medium.ttf",
+      "PlemolJP35-MediumItalic.ttf",
+      "PlemolJP35-Regular.ttf",
+      "PlemolJP35-SemiBold.ttf",
+      "PlemolJP35-SemiBoldItalic.ttf",
+      "PlemolJP35-Text.ttf",
+      "PlemolJP35-TextItalic.ttf",
+      "PlemolJP35-Thin.ttf",
+      "PlemolJP35-ThinItalic.ttf",
+      "PlemolJP35Console-Bold.ttf",
+      "PlemolJP35Console-BoldItalic.ttf",
+      "PlemolJP35Console-ExtraLight.ttf",
+      "PlemolJP35Console-ExtraLightItalic.ttf",
+      "PlemolJP35Console-Italic.ttf",
+      "PlemolJP35Console-Light.ttf",
+      "PlemolJP35Console-LightItalic.ttf",
+      "PlemolJP35Console-Medium.ttf",
+      "PlemolJP35Console-MediumItalic.ttf",
+      "PlemolJP35Console-Regular.ttf",
+      "PlemolJP35Console-SemiBold.ttf",
+      "PlemolJP35Console-SemiBoldItalic.ttf",
+      "PlemolJP35Console-Text.ttf",
+      "PlemolJP35Console-TextItalic.ttf",
+      "PlemolJP35Console-Thin.ttf",
+      "PlemolJP35Console-ThinItalic.ttf",
+      "PlemolJPConsole-Bold.ttf",
+      "PlemolJPConsole-BoldItalic.ttf",
+      "PlemolJPConsole-ExtraLight.ttf",
+      "PlemolJPConsole-ExtraLightItalic.ttf",
+      "PlemolJPConsole-Italic.ttf",
+      "PlemolJPConsole-Light.ttf",
+      "PlemolJPConsole-LightItalic.ttf",
+      "PlemolJPConsole-Medium.ttf",
+      "PlemolJPConsole-MediumItalic.ttf",
+      "PlemolJPConsole-Regular.ttf",
+      "PlemolJPConsole-SemiBold.ttf",
+      "PlemolJPConsole-SemiBoldItalic.ttf",
+      "PlemolJPConsole-Text.ttf",
+      "PlemolJPConsole-TextItalic.ttf",
+      "PlemolJPConsole-Thin.ttf",
+      "PlemolJPConsole-ThinItalic.ttf"
+    ],
+    "version": "3.0.0"
+  },
+  "plemoljp-nf": {
+    "files": [
+      "PlemolJP35ConsoleNF-Bold.ttf",
+      "PlemolJP35ConsoleNF-BoldItalic.ttf",
+      "PlemolJP35ConsoleNF-ExtraLight.ttf",
+      "PlemolJP35ConsoleNF-ExtraLightItalic.ttf",
+      "PlemolJP35ConsoleNF-Italic.ttf",
+      "PlemolJP35ConsoleNF-Light.ttf",
+      "PlemolJP35ConsoleNF-LightItalic.ttf",
+      "PlemolJP35ConsoleNF-Medium.ttf",
+      "PlemolJP35ConsoleNF-MediumItalic.ttf",
+      "PlemolJP35ConsoleNF-Regular.ttf",
+      "PlemolJP35ConsoleNF-SemiBold.ttf",
+      "PlemolJP35ConsoleNF-SemiBoldItalic.ttf",
+      "PlemolJP35ConsoleNF-Text.ttf",
+      "PlemolJP35ConsoleNF-TextItalic.ttf",
+      "PlemolJP35ConsoleNF-Thin.ttf",
+      "PlemolJP35ConsoleNF-ThinItalic.ttf",
+      "PlemolJPConsoleNF-Bold.ttf",
+      "PlemolJPConsoleNF-BoldItalic.ttf",
+      "PlemolJPConsoleNF-ExtraLight.ttf",
+      "PlemolJPConsoleNF-ExtraLightItalic.ttf",
+      "PlemolJPConsoleNF-Italic.ttf",
+      "PlemolJPConsoleNF-Light.ttf",
+      "PlemolJPConsoleNF-LightItalic.ttf",
+      "PlemolJPConsoleNF-Medium.ttf",
+      "PlemolJPConsoleNF-MediumItalic.ttf",
+      "PlemolJPConsoleNF-Regular.ttf",
+      "PlemolJPConsoleNF-SemiBold.ttf",
+      "PlemolJPConsoleNF-SemiBoldItalic.ttf",
+      "PlemolJPConsoleNF-Text.ttf",
+      "PlemolJPConsoleNF-TextItalic.ttf",
+      "PlemolJPConsoleNF-Thin.ttf",
+      "PlemolJPConsoleNF-ThinItalic.ttf"
+    ],
+    "version": "3.0.0"
+  },
+  "udev-gothic": {
+    "files": [
+      "UDEVGothic-Bold.ttf",
+      "UDEVGothic-BoldItalic.ttf",
+      "UDEVGothic-Italic.ttf",
+      "UDEVGothic-Regular.ttf",
+      "UDEVGothic35-Bold.ttf",
+      "UDEVGothic35-BoldItalic.ttf",
+      "UDEVGothic35-Italic.ttf",
+      "UDEVGothic35-Regular.ttf",
+      "UDEVGothic35JPDOC-Bold.ttf",
+      "UDEVGothic35JPDOC-BoldItalic.ttf",
+      "UDEVGothic35JPDOC-Italic.ttf",
+      "UDEVGothic35JPDOC-Regular.ttf",
+      "UDEVGothic35LG-Bold.ttf",
+      "UDEVGothic35LG-BoldItalic.ttf",
+      "UDEVGothic35LG-Italic.ttf",
+      "UDEVGothic35LG-Regular.ttf",
+      "UDEVGothicJPDOC-Bold.ttf",
+      "UDEVGothicJPDOC-BoldItalic.ttf",
+      "UDEVGothicJPDOC-Italic.ttf",
+      "UDEVGothicJPDOC-Regular.ttf",
+      "UDEVGothicLG-Bold.ttf",
+      "UDEVGothicLG-BoldItalic.ttf",
+      "UDEVGothicLG-Italic.ttf",
+      "UDEVGothicLG-Regular.ttf"
+    ],
+    "version": "2.2.0"
+  },
+  "udev-gothic-nf": {
+    "files": [
+      "UDEVGothic35NF-Bold.ttf",
+      "UDEVGothic35NF-BoldItalic.ttf",
+      "UDEVGothic35NF-Italic.ttf",
+      "UDEVGothic35NF-Regular.ttf",
+      "UDEVGothic35NFLG-Bold.ttf",
+      "UDEVGothic35NFLG-BoldItalic.ttf",
+      "UDEVGothic35NFLG-Italic.ttf",
+      "UDEVGothic35NFLG-Regular.ttf",
+      "UDEVGothicNF-Bold.ttf",
+      "UDEVGothicNF-BoldItalic.ttf",
+      "UDEVGothicNF-Italic.ttf",
+      "UDEVGothicNF-Regular.ttf",
+      "UDEVGothicNFLG-Bold.ttf",
+      "UDEVGothicNFLG-BoldItalic.ttf",
+      "UDEVGothicNFLG-Italic.ttf",
+      "UDEVGothicNFLG-Regular.ttf"
+    ],
+    "version": "2.2.0"
+  }
+}

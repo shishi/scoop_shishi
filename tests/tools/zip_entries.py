@@ -1,0 +1,103 @@
+"""bucket/*.json の url から収録ファイル一覧を取り、フィクスチャへ書き出す。
+
+zip は末尾の中央ディレクトリだけ HTTP range で取得する。PlemolJP は 206 MB
+あるが転送は数百 KB で済む。
+
+フィクスチャは {manifest: {"version": ..., "files": [...]}} の形。version を
+記録しておくのは、Excavator (schedule.yml) が hourly で version/url/hash を
+書き換えても、このフィクスチャがそれに気づかず古い URL の内容のまま緑であり
+続けるのを防ぐため。tests/Uniqueness.Tests.ps1 がここに記録された version と
+manifest 現在の version を突き合わせ、ズレていれば落ちる。version が変われば
+このスクリプトを再実行してフィクスチャを作り直す必要がある。
+"""
+import io
+import json
+import os
+import struct
+import subprocess
+
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BUCKET = os.path.join(REPO, 'bucket')
+OUT = os.path.join(REPO, 'tests', 'fixtures', 'zip-entries.json')
+
+FONT_EXT = ('.ttf', '.otf')
+
+
+def curl(args):
+    return subprocess.run(['curl', '-sL'] + args, capture_output=True).stdout
+
+
+def content_length(url):
+    head = curl(['-I', url]).decode('latin1')
+    n = None
+    for line in head.splitlines():
+        if line.lower().startswith('content-length:'):
+            n = int(line.split(':')[1].strip())
+    return n
+
+
+def zip_names(url, tail=300000):
+    total = content_length(url)
+    if not total:
+        raise SystemExit('サイズを取得できない: %s' % url)
+    buf = curl(['-H', 'Range: bytes=%d-' % max(0, total - tail), url])
+    i = buf.rfind(b'PK\x05\x06')
+    if i < 0:
+        raise SystemExit('EOCD が見つからない: %s' % url)
+    cd_off = struct.unpack('<I', buf[i + 16:i + 20])[0]
+    if cd_off == 0xFFFFFFFF:
+        # ZIP64。実際のオフセットは別レコードにあり、この値は番兵。
+        # そのまま使うとゴミを読んで、黙って間違った一覧を作ってしまう
+        raise SystemExit('ZIP64 は未対応: %s' % url)
+    base = total - len(buf)
+    if cd_off < base:
+        buf = curl(['-H', 'Range: bytes=%d-' % cd_off, url])
+        base = cd_off
+    p = cd_off - base
+    names = []
+    while p < len(buf) - 4 and buf[p:p + 4] == b'PK\x01\x02':
+        nlen, elen, clen = struct.unpack('<HHH', buf[p + 28:p + 34])
+        name = buf[p + 46:p + 46 + nlen].decode('utf-8', 'replace')
+        if not name.endswith('/'):
+            # フルパスのまま返す。extract_dir で絞る側が親ディレクトリを要る
+            names.append(name)
+        p += 46 + nlen + elen + clen
+    return names
+
+
+def main():
+    result = {}
+    for fn in sorted(os.listdir(BUCKET)):
+        if not fn.endswith('.json'):
+            continue
+        with io.open(os.path.join(BUCKET, fn), encoding='utf-8') as f:
+            m = json.load(f)
+        if 'installer' not in m:
+            continue          # フォント以外の manifest は飛ばす
+        urls = m['url'] if isinstance(m['url'], list) else [m['url']]
+        # extract_dir がある場合、scoop はその配下だけを展開する。zip 全体を
+        # 数えると installer が見ないファイルまで数えてしまう。実際
+        # biz-udmincho の zip は extract_dir の外にも同名フォントの複製を
+        # 持っており、絞らないと 4 本のところを 8 本と数える
+        extract = m.get('extract_dir')
+        extracts = extract if isinstance(extract, list) else [extract] * len(urls)
+        names = []
+        for u, ex in zip(urls, extracts):
+            if u.lower().endswith('.zip'):
+                entries = zip_names(u)
+                if ex:
+                    prefix = ex.replace('\\', '/').strip('/') + '/'
+                    entries = [n for n in entries if n.startswith(prefix)]
+                names.extend(n.rsplit('/', 1)[-1] for n in entries)
+            else:
+                names.append(u.rsplit('/', 1)[-1])
+        files = sorted(n for n in names if n.lower().endswith(FONT_EXT))
+        result[fn[:-5]] = {'version': m['version'], 'files': files}
+        print(fn[:-5], m['version'], len(files))
+    os.makedirs(os.path.dirname(OUT), exist_ok=True)
+    with io.open(OUT, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
+
+
+if __name__ == '__main__':
+    main()

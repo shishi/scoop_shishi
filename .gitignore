@@ -1,0 +1,13 @@
+# Pester はバージョン固定で取り込むが、実体はコミットしない
+tests/.modules/
+
+# 移行スクリプトは手元固有のパスを含むので公開 bucket に入れない
+migration/
+
+# 作業用のスクラッチ置き場。.git/info/exclude だけに頼ると他マシンの clone で
+# 誤ってコミットされうるので、公開リポジトリの .gitignore にも足す
+.superpowers/
+
+# Python のバイトコードキャッシュ。ソースが変わるたびに陳腐化するので追跡しない
+__pycache__/
+*.pyc
