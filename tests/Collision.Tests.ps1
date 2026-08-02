@@ -5,7 +5,11 @@
     $script:FontDir  = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
     $script:Target   = Join-Path $script:FontDir 'BIZUDGothic-Regular.ttf'
     $script:RegName  = 'BIZ UDGothic (TrueType)'
-    $script:Backup   = "$env:LOCALAPPDATA\scoop-font-backup\biz-udgothic-1.051"
+    # バージョンをハードコードすると、Excavator が hourly でバージョンを上げた
+    # 次の瞬間からここが黙って外れて掃除・検証の対象を見失う(Update.Tests.ps1 と
+    # 同じく manifest 自身から読む)
+    $script:BizUdgothicVersion = (Get-Content $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    $script:Backup   = "$env:LOCALAPPDATA\scoop-font-backup\biz-udgothic-$script:BizUdgothicVersion"
 
     # $script:RegName は 4 ファイルのうち 1 つ分でしかない。「記録が無ければ uninstall は
     # 何も消さない」テストは残り 3 つの登録もわざと残したまま次のケースへ進むので、
@@ -503,6 +507,53 @@ Describe 'uninstaller のロック耐性とジャーナル退役' {
             # 自分で仕込んだ障害物を片付け、以降（次の BeforeEach / AfterAll）の
             # 本物の scoop uninstall が正常に退役できる状態へ戻す
             Remove-Item -LiteralPath $retiredBlock -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'pre_uninstall フックのロック検出メッセージ' {
+    BeforeEach { Reset-Case }
+
+    It 'ロックされたフォントのファイル名を含むエラーを出して exit 1 する' {
+        # catch 内では $_ がパイプラインの FileInfo ではなく ErrorRecord になるため、
+        # $name をtry へ入る前に控えておかないとメッセージからファイル名が消える
+        # (今回の修正対象そのもの)。この振る舞いを直接検証する。
+        #
+        # pre_uninstall は失敗すると exit 1 する共有スクリプトで、同一プロセスで
+        # そのまま実行するとテストランナーごと終了してしまう。uninstaller.script の
+        # 検証(上の Describe)と同じく manifest から該当ブロックを取り出して使うが、
+        # こちらは子プロセス(powershell.exe -File)で走らせ、終了コードと
+        # 標準出力だけを受け取る
+        scoop install $script:Manifest 2>&1 | Out-Null
+        $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
+
+        $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+        $preUninstallText = $manifestObj.pre_uninstall -join "`r`n"
+
+        $lockedFile = 'BIZUDGothic-Regular.ttf'
+        $lockedPath = Join-Path $script:FontDir $lockedFile
+        # 書き込み・削除のみを拒否し読み取りは許す。pre_uninstall は Rename-Item で
+        # 自分自身へ改名を試みるだけなので、これで確実に失敗させられる
+        # (Collision.Tests.ps1 の他のテストで確認済みの手法)
+        $handle = [IO.File]::Open($lockedPath, 'Open', 'Read', 'Read')
+        $scriptPath = Join-Path $env:TEMP ("pre-uninstall-probe-" + [Guid]::NewGuid().ToString('n') + '.ps1')
+        try {
+            # pre_uninstall は $app / $dir を呼び出し元スコープから読む共有スクリプト。
+            # 子プロセスで同じ形を再現するため、先頭でこの 2 変数を設定してから
+            # 本体をそのままつなげる
+            $full = "`$app = 'biz-udgothic'`r`n`$dir = '$versionDir'`r`n$preUninstallText"
+            # pre_uninstall は日本語を含むため BOM 付き UTF-8 で書く
+            # (PowerShell 5.1 が BOM 無し UTF-8 を cp932 と誤解釈するため)
+            [IO.File]::WriteAllText($scriptPath, $full, (New-Object Text.UTF8Encoding $true))
+
+            $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1 | Out-String
+            $code = $LASTEXITCODE
+
+            $code | Should -Be 1
+            $out | Should -Match ([regex]::Escape($lockedFile))
+        } finally {
+            $handle.Close()
+            Remove-Item -LiteralPath $scriptPath -Force -ErrorAction SilentlyContinue
         }
     }
 }

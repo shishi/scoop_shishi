@@ -111,6 +111,12 @@ try {
     }
     Set-Acl -AclObject $acl $fontDir
 
+    # 一度も per-user フォントを入れたことが無いプロファイルでは、このキー自体が
+    # 存在しない。New-ItemProperty -Force は値の作成・上書きは Force するが、
+    # 親キーが無い場合の作成まではしない(実測: キー不在だと
+    # "Cannot find path ... because it does not exist" で失敗する)。ここで先に作る
+    if (-not (Test-Path $regKey)) { New-Item -Path $regKey -Force | Out-Null }
+
     foreach ($e in $plan) {
         # 変更に入る前に印を付けて保存する。途中でプロセスが落ちても対象だと分かる
         $e.Phase = 'mutating'; & $saveState

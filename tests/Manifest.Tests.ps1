@@ -69,6 +69,16 @@ Describe 'manifest の静的検査' {
         ($script:Fonts[0].Json.installer.script -join "`n") | Should -Match '\$global'
     }
 
+    It 'installer がレジストリキー($regKey)を作成してから書き込む' {
+        # 一度も per-user フォントを入れたことが無いプロファイルでは
+        # HKCU\...\Fonts キー自体が存在せず、New-ItemProperty -Force はキーの
+        # 作成まではしないため書き込みが失敗する(実測)。振る舞いテストには
+        # scratch hive が要り割に合わないので、共有 installer に
+        # キー作成が入っていることを静的に検査する
+        $s = ($script:Fonts[0].Json.installer.script -join "`n")
+        $s | Should -Match 'New-Item\s+-Path\s+\$regKey\s+-Force'
+    }
+
     It '<_.BaseName> に BOM が付いていない' -ForEach $script:ManifestFiles {
         $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
         ($head -join ',') | Should -Not -Be '239,187,191'

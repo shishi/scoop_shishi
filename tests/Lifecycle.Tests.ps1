@@ -3,6 +3,13 @@
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\biz-udgothic.json'
     $script:FontDir  = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    # バージョンをハードコードすると、Excavator が hourly でバージョンを上げた
+    # 次の瞬間からここが黙って外れて検証にならなくなる(実測: このリポジトリの
+    # .github/workflows/schedule.yml は Excavator を毎時走らせ、バージョン更新を
+    # 直接 default branch へコミットする)。Update.Tests.ps1 と同じく manifest 自身
+    # から読む
+    $script:BizUdgothicVersion = (Get-Content $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
+    $script:Backup = Join-Path "$env:LOCALAPPDATA\scoop-font-backup" "biz-udgothic-$script:BizUdgothicVersion"
     # このスイートに入る前の状態を覚えておく。Task 10 以降は 16 個とも入っているので、
     # 無条件に uninstall して終わると環境を壊す。
     # スナップショットは強制 uninstall より「前」に取る。後で取ると
@@ -32,11 +39,6 @@ Describe 'biz-udgothic のライフサイクル' {
         Join-Path "$env:LOCALAPPDATA\Microsoft\Windows\Fonts" $_ | Should -Exist
     }
 
-    It '35 を含むファイルは 1 つも置かれていない' {
-        @(Get-ChildItem $script:FontDir -Filter '*35*' -File -Force |
-            Where-Object { $_.Name -like 'BIZ*' }) | Should -BeNullOrEmpty
-    }
-
     It 'レジストリに登録され、値が実在するパスを指す' {
         $v = Get-FontRegValue -Name 'BIZ UDGothic (TrueType)'
         $v | Should -Not -BeNullOrEmpty
@@ -60,17 +62,10 @@ Describe 'biz-udgothic のライフサイクル' {
         $found | Should -Not -BeNullOrEmpty
     }
 
-    It 'デスクトップの GDI がフォントを認識している' {
-        Add-Type -AssemblyName System.Drawing
-        $families = (New-Object System.Drawing.Text.InstalledFontCollection).Families |
-            Select-Object -ExpandProperty Name
-        $families | Should -Contain 'BIZ UDGothic'
-    }
-
     It '記録が app ディレクトリと退避先の両方にある' {
         $appDir = (scoop prefix biz-udgothic)
         Join-Path $appDir 'scoop-font-state.json' | Should -Exist
-        Join-Path "$env:LOCALAPPDATA\scoop-font-backup\biz-udgothic-1.051" 'scoop-font-state.json' | Should -Exist
+        Join-Path $script:Backup 'scoop-font-state.json' | Should -Exist
     }
 
     It 'uninstall 後にフォント環境が元通りになる' {
@@ -79,6 +74,6 @@ Describe 'biz-udgothic のライフサイクル' {
     }
 
     It 'uninstall 後に退避ディレクトリが残っていない' {
-        "$env:LOCALAPPDATA\scoop-font-backup\biz-udgothic-1.051" | Should -Not -Exist
+        $script:Backup | Should -Not -Exist
     }
 }

@@ -16,16 +16,29 @@ $backupDir = "$env:LOCALAPPDATA\scoop-font-backup\$app-$appVersion"
 $statePath = Join-Path $backupDir 'scoop-font-state.json'
 if (-not (Test-Path $statePath)) { $statePath = Join-Path $dir 'scoop-font-state.json' }
 if (-not (Test-Path $statePath)) {
-    # 何も無いなら黙って戻ってよいが、退避ディレクトリだけ残っている場合は
-    # 「中断された uninstall がある」という意味なので、場所を明示して気づけるようにする
+    # 何も無いなら黙って戻ってよいが、退避ディレクトリまたはアプリディレクトリに
+    # 記録が残っている場合は「中断された uninstall がある」という意味なので、
+    # 場所を明示して気づけるようにする。退役済みの記録は「見つかった方」を
+    # そのまま退役させるため、backupDir 側とは限らず dir 側に残ることもある
     Write-Host "有効な記録が見つからない。フォントの削除は行わない。" -Foreground Yellow
     Write-Host "  探した場所: $backupDir\scoop-font-state.json" -Foreground Yellow
     Write-Host "              $dir\scoop-font-state.json" -Foreground Yellow
-    if (Test-Path $backupDir) {
-        Write-Host "  退避ディレクトリが残っている。中断された uninstall の可能性がある:" -Foreground Yellow
-        Get-ChildItem $backupDir -Filter '*.json' -ErrorAction SilentlyContinue |
-            ForEach-Object { Write-Host "    $($_.Name)" -Foreground Yellow }
-        Write-Host "  退役済みの記録 (*.retired.json) があれば、そこに何を触ったかが残っている" -Foreground Yellow
+    $foundAny = $false
+    foreach ($d in $backupDir, $dir) {
+        if (-not (Test-Path $d)) { continue }
+        $found = @(Get-ChildItem $d -Filter '*.json' -ErrorAction SilentlyContinue)
+        if ($found.Count -eq 0) { continue }
+        if (-not $foundAny) {
+            Write-Host "  記録が残っている。中断された uninstall の可能性がある:" -Foreground Yellow
+            $foundAny = $true
+        }
+        $found | ForEach-Object { Write-Host "    $($_.FullName)" -Foreground Yellow }
+    }
+    if ($foundAny) {
+        # Phase はインストーラーだけが書き、アンインストーラーは更新しない。
+        # つまり退役済みの記録が残しているのは install 時の計画であって、
+        # 中断された uninstall が実際に何を undo できた/できなかったかではない
+        Write-Host "  退役済みの記録 (*.retired.json) には install 時の計画が残っている(何を undo したかではない)" -Foreground Yellow
     }
     return
 }
