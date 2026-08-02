@@ -89,8 +89,17 @@
     }
 
     function New-DecoyFont([string]$Path) {
-        # 実在のフォントを土台に 1 バイトだけ変える。中身は別物だが name テーブルは読める
-        $src = Join-Path $env:WINDIR 'Fonts\BIZUDGothic-Regular.ttf'
+        # 実在のフォントを土台に 1 バイトだけ変える。中身は別物だが name テーブルは読める。
+        #
+        # 特定の 1 ファイルを直書きしない。BIZUDGothic-Regular.ttf は OS 同梱ではなく
+        # 手で machine-wide へ入れられていただけで、それを片付けたらこのスイートが
+        # FileNotFoundException で 4 件落ちた(実測)。Windows が必ず持つものから選ぶ
+        $src = $null
+        foreach ($c in 'segoeui.ttf', 'arial.ttf', 'tahoma.ttf', 'BIZUDGothic-Regular.ttf') {
+            $p = Join-Path $env:WINDIR "Fonts\$c"
+            if (Test-Path -LiteralPath $p) { $src = $p; break }
+        }
+        if (-not $src) { throw '囮の土台にできるフォントが C:\Windows\Fonts に無い' }
         $b = [IO.File]::ReadAllBytes($src)
         $b[$b.Length - 1] = [byte](($b[$b.Length - 1] + 1) % 256)
         [IO.File]::WriteAllBytes($Path, $b)

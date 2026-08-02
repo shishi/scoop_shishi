@@ -55,7 +55,14 @@ Describe 'install した直後にアプリからフォントが見えること' 
         (scoop list $script:App 6>$null | Out-String) |
             Should -Match ([regex]::Escape($script:App)) -Because "install が成立していない: $out"
 
-        (& $script:IsFamilyVisible $script:Family) | Should -Be 'VISIBLE'
+        # ここが MISSING のとき、疑うべきは installer だけではない。
+        # セッションのフォントテーブルは起動時に載った登録を保持し続け、
+        # 参照先のファイルを消してもその登録は残る(RemoveFontResourceW は
+        # パスが解決できないと外せないため)。machine-wide のフォントを
+        # 片付けた直後などは、死んだ登録が per-user 側を隠してこの検証が落ちる。
+        # その場合は再ログオンで解消する
+        (& $script:IsFamilyVisible $script:Family) |
+            Should -Be 'VISIBLE' -Because 'ファイルとレジストリが正しくても、セッションに死んだ登録が残っていると見えない。再ログオン後に再実行して切り分けること'
     }
 
     It 'uninstall 後、新しいプロセスから見えなくなる' {

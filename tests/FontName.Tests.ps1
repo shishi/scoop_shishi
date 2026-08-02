@@ -30,9 +30,22 @@ AfterAll {
 
 Describe 'Get-FontFullName' -Tag 'Static' {
     It '実在のフォントから Full font name を読める' {
-        $sample = Join-Path $env:WINDIR 'Fonts\BIZUDGothic-Regular.ttf'
-        if (-not (Test-Path $sample)) { Set-ItResult -Skipped -Because 'BIZ UDGothic が OS に無い' }
-        Get-FontFullName $sample | Should -Be 'BIZ UDGothic'
+        # 特定の 1 ファイルを直書きしない。BIZ UDGothic は OS 同梱ではなく手で
+        # machine-wide へ入れられていただけで、それを片付けたらこの検査が
+        # 黙って skip になった(実測)。Windows が必ず持つものから選ぶ。
+        # 期待値はファイルごとに違うので、ファイル名と Full font name を対で持つ
+        $sample = $null
+        foreach ($c in @(
+            @{ File = 'segoeui.ttf'; Full = 'Segoe UI' },
+            @{ File = 'arial.ttf';   Full = 'Arial' },
+            @{ File = 'tahoma.ttf';  Full = 'Tahoma' }
+        )) {
+            $p = Join-Path $env:WINDIR "Fonts\$($c.File)"
+            if (Test-Path -LiteralPath $p) { $sample = $c; $sample.Path = $p; break }
+        }
+        if (-not $sample) { throw '検証に使える OS 同梱フォントが見つからない' }
+
+        Get-FontFullName $sample.Path | Should -Be $sample.Full
     }
 
     It '12 バイト未満なら例外' {
