@@ -1,14 +1,14 @@
 {
-    "version": "3.8.2",
+    "version": "3.8.8",
     "homepage": "https://www.haijin-boys.com/wiki/",
     "architecture": {
         "64bit": {
-            "url": "http://www.haijin-boys.com/download/Mery-x64-3.8.2.zip",
-            "hash": "9263b97d7d658f467cf2e719a472d8aececf4d8034c1500e6aeef129de9bca6e"
+            "url": "http://www.haijin-boys.com/download/Mery-x64-3.8.8.zip",
+            "hash": "6121d6e645199617f826fa5ea69f2207944971273d0aebe2a6f03660dff860c5"
         },
         "32bit": {
-            "url": "http://www.haijin-boys.com/download/Mery-3.8.2.zip",
-            "hash": "24cec8e52141f215215710f013c8f6c2ad3953aca5b2a5160acc239867ba3b0f"
+            "url": "http://www.haijin-boys.com/download/Mery-3.8.8.zip",
+            "hash": "08bed0c70cfe980eefb1eb18406940fa7a79d15a037b892be89ea6ccdde6c397"
         }
     },
     "extract_dir": "Mery",
@@ -27,9 +27,8 @@
     ],
     "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
     "checkver": {
-        "url": "https://www.haijin-boys.com/software/mery",
-        "regex": "Ver ([\\d.]+)",
-        "disable": true
+        "url": "https://www.haijin-boys.com/feed",
+        "regex": "Mery[^<]*?(?:Ver\\.?\\s*|v)([0-9]+\\.[0-9]+\\.[0-9]+)"
     },
     "autoupdate": {
         "architecture": {
