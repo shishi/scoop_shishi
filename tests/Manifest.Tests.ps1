@@ -126,12 +126,45 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         $inst = ($j.installer.script -join "`n")
         $unin = ($j.uninstaller.script -join "`n")
 
-        $inst | Should -Match 'AddFontResourceW'
-        $unin | Should -Match 'RemoveFontResourceW'
+        # 宣言ではなく「呼び出し」を見ること。素朴に 'AddFontResourceW' を探すと
+        # Add-Type の P/Invoke 宣言に当たってしまい、呼び出しを丸ごと消しても
+        # 緑のままになる(実測。意図的に壊して確かめた)
+        $inst | Should -Match '\[ScoopFont\.Gdi\]::AddFontResourceW\('
+        $unin | Should -Match '\[ScoopFont\.Gdi\]::RemoveFontResourceW\('
         # WM_FONTCHANGE = 0x1D。これを配らないと起動済みのアプリが一覧を作り直さない
         foreach ($s in $inst, $unin) {
-            $s | Should -Match 'SendMessageTimeout'
+            $s | Should -Match '\[ScoopFont\.Gdi\]::SendMessageTimeout\('
             $s | Should -Match '0x1D'
+        }
+    }
+
+    It 'uninstaller はファイルを消す前に GDI の登録を外す' {
+        # 消した後に RemoveFontResourceW を呼んでもパスを解決できず false が
+        # 返るだけで、セッションのフォントテーブルに残り続ける(実測: 削除後は
+        # 0 回 true、削除前なら 3 回 true を返して一覧から消えた)。
+        # 順序が入れ替わると FontNotify.Tests.ps1 の 3 件目で落ちるが、
+        # あちらは実機を書き換えるスイートなので静的にも留め金を掛けておく
+        $lines = @($script:Fonts[0].Json.uninstaller.script)
+        $removeAt = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '\$notifyFonts\s+-Remove' })
+        $loopAt   = [array]::FindIndex($lines, [Predicate[string]] { param($l) $l -match '^foreach \(\$e in \$entries\)' })
+        $removeAt | Should -BeGreaterThan -1
+        $loopAt   | Should -BeGreaterThan -1
+        $removeAt | Should -BeLessThan $loopAt
+    }
+
+    It '共通スクリプトが PowerShell として構文解析できる' {
+        # sync_scripts.py は行を機械的に配るだけで中身を検査しない。
+        # 壊れたスクリプトを配っても manifest としては妥当な JSON になるため、
+        # 構文エラーは scoop install を実行するまで表に出てこない
+        $j = $script:Fonts[0].Json
+        foreach ($block in @{ n = 'installer'; s = $j.installer.script },
+                           @{ n = 'pre_uninstall'; s = $j.pre_uninstall },
+                           @{ n = 'uninstaller'; s = $j.uninstaller.script }) {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput(
+                ($block.s -join "`n"), [ref]$null, [ref]$errs)
+            @($errs | ForEach-Object { "$($block.n): $($_.Message)" }) -join '; ' |
+                Should -BeNullOrEmpty
         }
     }
 
