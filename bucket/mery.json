@@ -1,5 +1,7 @@
 {
     "version": "3.8.8",
+    "description": "Mery — Windows 用のタブ切り替え型テキストエディター",
+    "license": "Freeware",
     "homepage": "https://www.haijin-boys.com/wiki/",
     "architecture": {
         "64bit": {
