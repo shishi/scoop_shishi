@@ -6,9 +6,24 @@
     "url": "https://github.com/Raphire/Win11Debloat/archive/refs/tags/2026.07.11.zip",
     "hash": "e97c8e36698c7b543da0b77cc34439c1a0b4917525b45a9d1ae7a02e23d4711d",
     "extract_dir": "Win11Debloat-2026.07.11",
+    "pre_install": [
+        "# scoop が .ps1 に張るシムは pwsh があればそちらを優先する(生成物を実測)。",
+        "# ところが Win11Debloat.ps1 は PSEdition が Core だと「Windows PowerShell 5.1 で",
+        "# 実行しろ」と出して exit 1 する(本体 108 行目。Appx モジュールが pwsh では",
+        "# 動かないため)。つまり pwsh を入れている環境では .ps1 を直にシムした瞬間に",
+        "# 使えなくなる。5.1 を名指しするランチャーを挟んでそれを避ける。",
+        "# 同梱の Run.bat も 5.1 を起動するが %* を渡さないので引数が捨てられる。",
+        "# ここは pre_install に置くこと。scoop は pre_install の後に create_shims を",
+        "# 呼ぶので(lib/install.ps1)、post_install ではシムを張る時点で実体が無い",
+        "$launcher = @(",
+        "    '@echo off'",
+        "    'powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"%~dp0Win11Debloat.ps1\" %*'",
+        ") -join \"`r`n\"",
+        "[IO.File]::WriteAllText(\"$dir\\win11debloat.cmd\", $launcher + \"`r`n\", [Text.Encoding]::ASCII)"
+    ],
     "bin": [
         [
-            "Win11Debloat.ps1",
+            "win11debloat.cmd",
             "win11debloat"
         ]
     ],

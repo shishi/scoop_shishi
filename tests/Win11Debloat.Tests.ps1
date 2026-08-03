@@ -37,12 +37,26 @@ Describe 'win11debloat manifest の静的検査' -Tag 'Static' {
         $script:Json.autoupdate.extract_dir | Should -Match '\$version'
     }
 
-    It 'bin が Run.bat ではなく Win11Debloat.ps1 を指している' {
-        # Run.bat は %* を渡さないので、シム経由の引数(-DisableTelemetry など)が
-        # 黙って捨てられる。Win11Debloat.ps1 は自身が管理者権限を確認して
-        # -Verb RunAs で再起動し、そのとき引数も引き継ぐので直接シムしてよい
-        ($script:Json.bin | ForEach-Object { $_ }) -join ' ' | Should -Match 'Win11Debloat\.ps1'
-        ($script:Json.bin | ForEach-Object { $_ }) -join ' ' | Should -Not -Match 'Run\.bat'
+    It 'bin が .ps1 を直に指していない' {
+        # scoop が .ps1 に張るシムは pwsh があればそちらを優先する
+        # (生成された win11debloat.cmd を実測)。ところが Win11Debloat.ps1 は
+        # PSEdition が Core なら「Windows PowerShell 5.1 で実行しろ」と出して
+        # exit 1 する(本体 108 行目。Appx モジュールが pwsh で動かないため)。
+        # つまり pwsh を入れている環境では .ps1 を直にシムした瞬間に使えなくなる。
+        # Run.bat も駄目で、あちらは %* を渡さないので引数が黙って捨てられる
+        $bin = ($script:Json.bin | ForEach-Object { $_ }) -join ' '
+        $bin | Should -Not -Match 'Win11Debloat\.ps1'
+        $bin | Should -Not -Match 'Run\.bat'
+        $bin | Should -Match 'win11debloat\.cmd'
+    }
+
+    It 'pre_install が 5.1 を名指しするランチャーを用意する' {
+        # bin の実体を作るのは pre_install。scoop は pre_install(54 行目)の後に
+        # create_shims(59 行目)を呼ぶので、この順でなければシムが張れない
+        $pre = ($script:Json.pre_install -join "`n")
+        $pre | Should -Match 'win11debloat\.cmd'
+        $pre | Should -Match 'powershell\.exe'
+        $pre | Should -Match '%\*'          # 引数をそのまま渡すこと
     }
 
     It 'ユーザーデータを persist している' {
@@ -68,11 +82,14 @@ Describe 'win11debloat manifest の静的検査' -Tag 'Static' {
         $post | Should -Match 'Copy-Item'
     }
 
-    It 'post_install が PowerShell として構文解析できる' {
-        $errs = $null
-        [void][System.Management.Automation.Language.Parser]::ParseInput(
-            ($script:Json.post_install -join "`n"), [ref]$null, [ref]$errs)
-        @($errs | ForEach-Object { $_.Message }) -join '; ' | Should -BeNullOrEmpty
+    It 'pre_install と post_install が PowerShell として構文解析できる' {
+        foreach ($key in 'pre_install', 'post_install') {
+            $errs = $null
+            [void][System.Management.Automation.Language.Parser]::ParseInput(
+                ($script:Json.$key -join "`n"), [ref]$null, [ref]$errs)
+            @($errs | ForEach-Object { "${key}: $($_.Message)" }) -join '; ' |
+                Should -BeNullOrEmpty
+        }
     }
 
     It 'BOM が付いていない' {
@@ -117,22 +134,64 @@ Describe 'win11debloat のインストールと更新' {
     }
 
     AfterAll {
-        scoop uninstall win11debloat 2>&1 | Out-Null
-        if (Test-Path -LiteralPath $script:Persist) {
-            Remove-Item -LiteralPath $script:Persist -Recurse -Force
+        # 退避した実環境の persist を戻すのは、途中で何が落ちても必ずやる。
+        # ここを素直に並べると、uninstall や Remove-Item が投げた時点で
+        # 復元まで到達せず、利用者の保存設定とレジストリバックアップが
+        # %TEMP% に取り残される。片付けの失敗より復元の方が重い
+        try {
+            scoop uninstall win11debloat 2>&1 | Out-Null
+            if (Test-Path -LiteralPath $script:Persist) {
+                Remove-Item -LiteralPath $script:Persist -Recurse -Force
+            }
+        } finally {
+            if ($script:PersistBackup -and (Test-Path -LiteralPath $script:PersistBackup)) {
+                if (Test-Path -LiteralPath $script:Persist) {
+                    # 消し損ねている。上書きせず、退避したものを別名で残して気づけるようにする
+                    Write-Warning "テストが作った $script:Persist を消せなかった。退避したデータは $script:PersistBackup に在る"
+                } else {
+                    Move-Item -LiteralPath $script:PersistBackup -Destination $script:Persist
+                }
+            }
+            if ($script:WasInstalled) { scoop install $script:ManifestPath 2>&1 | Out-Null }
         }
-        if ($script:PersistBackup) {
-            Move-Item -LiteralPath $script:PersistBackup -Destination $script:Persist
-        }
-        if ($script:WasInstalled) { scoop install $script:ManifestPath 2>&1 | Out-Null }
     }
 
     It 'manifest から install できてシムが張られる' {
         scoop install $script:ManifestPath 2>&1 | Out-Null
         Test-Installed | Should -BeTrue
-        # bin は .ps1 を指す。シムは @args で引数をそのまま渡すので
-        # win11debloat -DisableTelemetry のような使い方ができる
-        Join-Path $script:ScoopRoot 'shims\win11debloat.ps1' | Should -Exist
+        Join-Path $script:ScoopRoot 'shims\win11debloat.cmd' | Should -Exist
+    }
+
+    It 'ランチャーが Windows PowerShell 5.1 で本体を起動し、引数をそのまま渡す' {
+        # ここが歯の要。「シムのファイルが在る」だけを見ていると、pwsh が
+        # 入った環境で本体が exit 1 するのに緑のまま通ってしまう(実際に一度
+        # 見逃した)。配布するランチャーそのものを一時ディレクトリへ複製し、
+        # 本体の代わりに素性を報告するスタブを置いて、どちらの PowerShell が
+        # 起動したかと引数が届いたかを実行して確かめる。
+        # 本物の Win11Debloat.ps1 は昇格して実機を書き換えるので走らせない
+        $launcher = Join-Path $script:ScoopRoot 'apps\win11debloat\current\win11debloat.cmd'
+        $launcher | Should -Exist
+
+        $sandbox = Join-Path $env:TEMP ("win11debloat-launcher-" + [Guid]::NewGuid().ToString('n'))
+        New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
+        try {
+            # ランチャーは %~dp0 で隣の Win11Debloat.ps1 を呼ぶので、複製先の
+            # スタブが拾われる
+            Copy-Item -LiteralPath $launcher -Destination (Join-Path $sandbox 'win11debloat.cmd')
+            Set-Content -LiteralPath (Join-Path $sandbox 'Win11Debloat.ps1') -Encoding ASCII -Value @(
+                'param([switch]$DisableTelemetry)'
+                'Write-Output "edition=$($PSVersionTable.PSEdition)"'
+                'Write-Output "flag=$DisableTelemetry"'
+            )
+
+            $out = & cmd.exe /c "`"$(Join-Path $sandbox 'win11debloat.cmd')`" -DisableTelemetry" 2>&1 | Out-String
+
+            # pwsh が起動していれば Core になり、本体なら exit 1 していた
+            $out | Should -Match 'edition=Desktop'
+            $out | Should -Match 'flag=True'
+        } finally {
+            Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     It 'ユーザーデータの置き場が persist されている' {
