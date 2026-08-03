@@ -1,0 +1,50 @@
+{
+    "version": "1.3",
+    "description": "Skip UAC Prompt — 選んだアプリだけ UAC の確認を出さずに管理者権限で起動できるようにする(UAC 自体は無効化しない)",
+    "homepage": "https://www.sordum.org/skip-uac-prompt",
+    "license": {
+        "identifier": "Freeware",
+        "url": "https://www.sordum.org/eula/"
+    },
+    "url": "https://www.sordum.org/files/download/skip-uac-prompt/SkipUAC.zip",
+    "hash": "9648c31cdbea05dc70e444783ef87c8918c6ad47afe0043b3f369f9591946611",
+    "extract_dir": "SkipUAC",
+    "architecture": {
+        "64bit": {
+            "bin": [
+                [
+                    "SkipUAC_x64.exe",
+                    "skipuac"
+                ]
+            ],
+            "shortcuts": [
+                [
+                    "SkipUAC_x64.exe",
+                    "Skip UAC Prompt"
+                ]
+            ]
+        },
+        "32bit": {
+            "bin": [
+                [
+                    "SkipUAC.exe",
+                    "skipuac"
+                ]
+            ],
+            "shortcuts": [
+                [
+                    "SkipUAC.exe",
+                    "Skip UAC Prompt"
+                ]
+            ]
+        }
+    },
+    "persist": "SkipUAC.ini",
+    "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
+    "notes": [
+        "アンインストールする前に File メニューの \"Remove Data and Exit\"(v1.1 で追加。VersionInfo.txt)で登録済みアプリを片付けること。scoop uninstall はアプリ配下しか消さない。",
+        "SkipUAC.ini は設定と全言語の翻訳が同じファイルに入っている(UTF-16LE)。persist するので設定は版をまたいで残るが、そのぶん新版の翻訳文は反映されない。",
+        "sordum.org は GitHub Actions のランナーへ zip を返さないので autoupdate を持たせていない。新版は手で version と hash を上げること(checkver は普通のマシンからなら動く)。"
+    ],
+    "checkver": "Skip UAC Prompt v([\\d.]+)"
+}
