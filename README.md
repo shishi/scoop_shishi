@@ -39,6 +39,8 @@ scoop bucket add shishi https://github.com/shishi/scoop_shishi
 
 `win11debloat` は Windows PowerShell 5.1 を名指しで起動する（本体が pwsh を拒否するため）。起動時に作業ディレクトリをアプリ配下へ移すので、`-Apps` や `-Config` にはフルパスを渡すこと。
 
-`skip-uac-prompt` の配布 URL は版を含まない固定 URL なので、新版が出ても checkver が拾うのは hash だけになる（version は配布ページの `Skip UAC Prompt v1.3` から読む）。zip の最上位は版に依らず `SkipUAC` 固定なので `extract_dir` も固定。コマンド名は 32/64bit どちらでも `skipuac` に揃えてある。
+`skip-uac-prompt` の配布 URL は版を含まない固定 URL（version は配布ページの `Skip UAC Prompt v1.3` から checkver で読む）。zip の最上位は版に依らず `SkipUAC` 固定なので `extract_dir` も固定。コマンド名は 32/64bit どちらでも `skipuac` に揃えてある。
+
+**`skip-uac-prompt` だけ `autoupdate` を持たない。** sordum.org は GitHub Actions のランナーへ zip を返さない（実測: 同じ URL がローカルでは 1,208,332 バイト、Actions 上では 11.9 KB。checkver も Actions では版を読めない）。autoupdate を持たせると、Actions 側で「投稿ページは読めるのに zip はブロックページが返る」瞬間に Excavator がそのブロックページの hash を「正しい hash」として commit してしまう。新版は手で version と hash を上げること。同じ理由で、この manifest に対する shovel PR Validator の Hashes / Checkver は常に赤くなる。
 
 `xcolumn` は framework-dependent ビルドを配る（`XColumn.exe` は AMD64 なので 64bit 専用）。.NET 8 デスクトップランタイムと WebView2 ランタイムが要るので `suggest` に入れてある。ランタイムを入れたくないなら、同じリリースの `_Contained.zip`（自己完結ビルド。`XColumn.exe` だけで 167MB）を手で使うこと。設定と Cookie は `%APPDATA%\XColumn` にあり `scoop uninstall` では消えない。
