@@ -130,9 +130,21 @@ Describe 'win11debloat のインストールと更新' {
         $script:WasInstalled = Test-Installed
         scoop uninstall win11debloat 2>&1 | Out-Null
         $script:PersistBackup = $null
-        if (Test-Path -LiteralPath $script:Persist) {
-            $script:PersistBackup = Join-Path $env:TEMP ("win11debloat-persist-" + [Guid]::NewGuid().ToString('n'))
-            Move-Item -LiteralPath $script:Persist -Destination $script:PersistBackup
+        $script:PersistExistedAtStart = Test-Path -LiteralPath $script:Persist
+        if ($script:PersistExistedAtStart) {
+            # 退避先は同じ persist ディレクトリの隣に取る。%TEMP% が別ボリューム
+            # だと Move-Item がコピー+削除に化け、途中で失敗すると部分コピーが残る
+            $candidate = Join-Path (Split-Path $script:Persist) `
+                ("win11debloat.testbackup-" + [Guid]::NewGuid().ToString('n'))
+            Move-Item -LiteralPath $script:Persist -Destination $candidate -ErrorAction Stop
+
+            # 「退避できた」と記録するのは、移動先が在って移動元が消えたことを
+            # 確かめてから。先に記録すると、移動が中途で失敗したときに AfterAll が
+            # 実データの方を消して復元できない
+            if ((-not (Test-Path -LiteralPath $candidate)) -or (Test-Path -LiteralPath $script:Persist)) {
+                throw "persist の退避に失敗した。実データを壊さないためテストを中止する ($script:Persist)"
+            }
+            $script:PersistBackup = $candidate
         }
     }
 
@@ -143,16 +155,25 @@ Describe 'win11debloat のインストールと更新' {
         # %TEMP% に取り残される。片付けの失敗より復元の方が重い
         try {
             scoop uninstall win11debloat 2>&1 | Out-Null
-            if (Test-Path -LiteralPath $script:Persist) {
-                Remove-Item -LiteralPath $script:Persist -Recurse -Force
-            }
         } finally {
-            if ($script:PersistBackup -and (Test-Path -LiteralPath $script:PersistBackup)) {
-                if (Test-Path -LiteralPath $script:Persist) {
-                    # 消し損ねている。上書きせず、退避したものを別名で残して気づけるようにする
-                    Write-Warning "テストが作った $script:Persist を消せなかった。退避したデータは $script:PersistBackup に在る"
-                } else {
-                    Move-Item -LiteralPath $script:PersistBackup -Destination $script:Persist
+            if ($script:PersistExistedAtStart -and -not $script:PersistBackup) {
+                # 退避に失敗して BeforeAll が中止したケース。実データがその場に
+                # 残っているので、片付けと称して消してはいけない
+                Write-Warning "persist の退避に失敗していたため $script:Persist には手を触れていない"
+            } else {
+                try {
+                    if (Test-Path -LiteralPath $script:Persist) {
+                        Remove-Item -LiteralPath $script:Persist -Recurse -Force
+                    }
+                } finally {
+                    if ($script:PersistBackup -and (Test-Path -LiteralPath $script:PersistBackup)) {
+                        if (Test-Path -LiteralPath $script:Persist) {
+                            # 消し損ねている。上書きせず、退避したものを残して気づけるようにする
+                            Write-Warning "テストが作った $script:Persist を消せなかった。退避したデータは $script:PersistBackup に在る"
+                        } else {
+                            Move-Item -LiteralPath $script:PersistBackup -Destination $script:Persist
+                        }
+                    }
                 }
             }
             if ($script:WasInstalled) { scoop install $script:ManifestPath 2>&1 | Out-Null }
