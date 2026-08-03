@@ -117,8 +117,11 @@ Describe 'win11debloat のインストールと更新' {
         $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
         $script:Persist   = Join-Path $script:ScoopRoot 'persist\win11debloat'
 
+        # scoop list はグローバルインストールも並べる。それを「入っていた」と
+        # 数えると、AfterAll のローカル install がグローバル版と二重になる。
+        # このスイートが触るのはローカルだけなので、ローカルの実体だけを見る
         function script:Test-Installed {
-            (scoop list win11debloat 6>$null | Out-String) -match '(?m)^win11debloat\s'
+            Test-Path -LiteralPath (Join-Path $script:ScoopRoot 'apps\win11debloat\current')
         }
 
         # このスイートは persist の中身を意図的に壊す。実環境の保存設定や
@@ -183,10 +186,36 @@ Describe 'win11debloat のインストールと更新' {
                 'Write-Output "edition=$($PSVersionTable.PSEdition)"'
                 'Write-Output "flag=$DisableTelemetry"'
             )
+            # cmd はコマンド名を解決するとき、既定でカレントディレクトリを
+            # PATH より先に見る。拡張子まで書かれた名前には PATHEXT が効かない
+            # ので、囮も powershell.exe そのものでなければ刺さらない
+            # (powershell.bat を置いても素通りした。実測)
+            Copy-Item -LiteralPath "$env:SystemRoot\System32\cmd.exe" `
+                      -Destination (Join-Path $sandbox 'powershell.exe')
 
-            $out = & cmd.exe /c "`"$(Join-Path $sandbox 'win11debloat.cmd')`" -DisableTelemetry" 2>&1 | Out-String
+            # この環境には NoDefaultCurrentDirectoryInExePath=1 が入っていて、
+            # cmd がカレントを検索から外すため乗っ取りが起きない。素の Windows に
+            # この変数は無いので、外して既定の Windows を代表させる
+            $savedNoDefault = $env:NoDefaultCurrentDirectoryInExePath
+            Remove-Item Env:\NoDefaultCurrentDirectoryInExePath -ErrorAction SilentlyContinue
 
-            # pwsh が起動していれば Core になり、本体なら exit 1 していた
+            $outFile = Join-Path $sandbox 'out.txt'
+            try {
+                # 作業ディレクトリは Start-Process に指定する。Push-Location は
+                # PowerShell 上の位置を変えるだけで子プロセスには効かず、PATH 上の
+                # scoop シムが拾われて本物の Win11Debloat.ps1 が起動した(実測)
+                Start-Process -FilePath (Join-Path $sandbox 'win11debloat.cmd') `
+                    -ArgumentList '-DisableTelemetry' -WorkingDirectory $sandbox `
+                    -NoNewWindow -Wait -RedirectStandardOutput $outFile
+            } finally {
+                if ($null -ne $savedNoDefault) {
+                    $env:NoDefaultCurrentDirectoryInExePath = $savedNoDefault
+                }
+            }
+            $out = Get-Content -LiteralPath $outFile -Raw
+
+            # pwsh が起動していれば Core になり、本体なら exit 1 していた。
+            # カレントの囮を掴んでいれば、そもそもこの出力が出ない
             $out | Should -Match 'edition=Desktop'
             $out | Should -Match 'flag=True'
         } finally {
