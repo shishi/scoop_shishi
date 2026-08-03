@@ -176,7 +176,11 @@ Describe 'win11debloat のインストールと更新' {
         $launcher | Should -Exist
 
         $sandbox = Join-Path $env:TEMP ("win11debloat-launcher-" + [Guid]::NewGuid().ToString('n'))
+        # 呼び出し元の cwd はランチャーの置き場と別にする。同じにすると
+        # 「cwd をアプリ配下へ移す」処理が有っても無くても同じ結果になり歯が無くなる
+        $caller  = Join-Path $env:TEMP ("win11debloat-caller-"   + [Guid]::NewGuid().ToString('n'))
         New-Item -ItemType Directory -Path $sandbox -Force | Out-Null
+        New-Item -ItemType Directory -Path $caller  -Force | Out-Null
         try {
             # ランチャーは %~dp0 で隣の Win11Debloat.ps1 を呼ぶので、複製先の
             # スタブが拾われる
@@ -185,13 +189,15 @@ Describe 'win11debloat のインストールと更新' {
                 'param([switch]$DisableTelemetry)'
                 'Write-Output "edition=$($PSVersionTable.PSEdition)"'
                 'Write-Output "flag=$DisableTelemetry"'
+                'Write-Output "cwd=$($PWD.Path)"'
             )
             # cmd はコマンド名を解決するとき、既定でカレントディレクトリを
             # PATH より先に見る。拡張子まで書かれた名前には PATHEXT が効かない
             # ので、囮も powershell.exe そのものでなければ刺さらない
-            # (powershell.bat を置いても素通りした。実測)
+            # (powershell.bat を置いても素通りした。実測)。
+            # 囮は呼び出し元の cwd に置く。攻撃者が書ける場所で叩かれる状況を模す
             Copy-Item -LiteralPath "$env:SystemRoot\System32\cmd.exe" `
-                      -Destination (Join-Path $sandbox 'powershell.exe')
+                      -Destination (Join-Path $caller 'powershell.exe')
 
             # この環境には NoDefaultCurrentDirectoryInExePath=1 が入っていて、
             # cmd がカレントを検索から外すため乗っ取りが起きない。素の Windows に
@@ -205,7 +211,7 @@ Describe 'win11debloat のインストールと更新' {
                 # PowerShell 上の位置を変えるだけで子プロセスには効かず、PATH 上の
                 # scoop シムが拾われて本物の Win11Debloat.ps1 が起動した(実測)
                 Start-Process -FilePath (Join-Path $sandbox 'win11debloat.cmd') `
-                    -ArgumentList '-DisableTelemetry' -WorkingDirectory $sandbox `
+                    -ArgumentList '-DisableTelemetry' -WorkingDirectory $caller `
                     -NoNewWindow -Wait -RedirectStandardOutput $outFile
             } finally {
                 if ($null -ne $savedNoDefault) {
@@ -215,11 +221,19 @@ Describe 'win11debloat のインストールと更新' {
             $out = Get-Content -LiteralPath $outFile -Raw
 
             # pwsh が起動していれば Core になり、本体なら exit 1 していた。
-            # カレントの囮を掴んでいれば、そもそもこの出力が出ない
+            # 囮を掴んでいれば、そもそもこの出力が出ない
             $out | Should -Match 'edition=Desktop'
             $out | Should -Match 'flag=True'
+
+            # 本体は管理者でなければ Start-Process powershell -Verb RunAs で
+            # 自分を入れ直す。ShellExecute はカレントディレクトリも探すため、
+            # 呼び出し元の cwd に囮があるとその二段目で掴まれる。上流のコードは
+            # 書き換えない方針なので、ランチャー側で cwd をアプリ配下へ移して
+            # 囮の居ない場所から昇格させる
+            $out | Should -Match ("cwd=" + [regex]::Escape($sandbox))
         } finally {
             Remove-Item -LiteralPath $sandbox -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $caller  -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
