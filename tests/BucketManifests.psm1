@@ -1,21 +1,32 @@
 ﻿# bucket 配下の manifest を「フォント」と「それ以外のツール」に分ける唯一の場所。
 #
-# 以前は 'crvskkserv','mery',... というツール名のブロックリストを
-# Manifest.Tests.ps1(3 箇所)と Uniqueness.Tests.ps1(1 箇所)へ写していた。
-# manifest を 1 つ足すたびに 4 箇所すべてを直す必要があり、直し忘れると
-# 新しく足したツールがフォント扱いのまま「license は OFL-1.1」で落ちる。
+# 判別は名簿(tests/fixtures/font-manifests.json)で行う。共有 installer
+# スクリプトの配布先を決める sync_scripts.py も同じ名簿を読む。
 #
-# 判別は名前ではなく中身で行う。フォント manifest だけが installer キーを
-# 持つ(実測: フォント 16 件は全部持ち、ツール 6 件は 1 つも持たない)。
-# ツールは bin / shortcuts で足りるので installer を書く理由が無い
-function Get-FontManifestFile {
+# manifest の中身(installer キーの有無など)で判別してはいけない。検査したい
+# プロパティ自身が「検査するかどうか」を決めることになり、installer を書き
+# 忘れた manifest が、まさにそれが無いことを理由にフォント扱いから外れて
+# 黙って素通りする。名簿と bucket の突き合わせは Manifest.Tests.ps1 が行う
+function Get-FontRoster {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$BucketDir)
+    param([Parameter(Mandatory)][string]$TestsDir)
 
-    @(Get-ChildItem $BucketDir -Filter '*.json' | Where-Object {
-        $json = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
-        $json.PSObject.Properties.Name -contains 'installer'
-    })
+    $path = Join-Path $TestsDir 'fixtures\font-manifests.json'
+    if (-not (Test-Path -LiteralPath $path)) {
+        throw "フォント名簿が見つからない: $path"
+    }
+    @((Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json).fonts)
 }
 
-Export-ModuleMember -Function Get-FontManifestFile
+function Get-FontManifestFile {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$BucketDir,
+        [Parameter(Mandatory)][string]$TestsDir
+    )
+
+    $roster = Get-FontRoster -TestsDir $TestsDir
+    @(Get-ChildItem $BucketDir -Filter '*.json' | Where-Object { $_.BaseName -in $roster })
+}
+
+Export-ModuleMember -Function Get-FontRoster, Get-FontManifestFile

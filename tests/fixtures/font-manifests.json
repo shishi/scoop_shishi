@@ -1,0 +1,21 @@
+{
+  "_comment": "フォント manifest の名簿。共有 installer スクリプトの配布先(sync_scripts.py)と、テストのフォント判別(BucketManifests.psm1)の両方がここだけを見る。manifest の中身から判別すると、検査したいプロパティ自身が「検査するかどうか」を決めてしまい、installer を書き忘れた manifest が黙って検査を素通りする",
+  "fonts": [
+    "biz-udgothic",
+    "biz-udmincho",
+    "bizin-gothic",
+    "bizin-gothic-discord",
+    "bizin-gothic-nf",
+    "bizter",
+    "hackgen",
+    "hackgen-nf",
+    "noto-color-emoji",
+    "noto-sans-jp",
+    "noto-serif-jp",
+    "notonoto",
+    "plemoljp",
+    "plemoljp-nf",
+    "udev-gothic",
+    "udev-gothic-nf"
+  ]
+}

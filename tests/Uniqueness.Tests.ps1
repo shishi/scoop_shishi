@@ -15,7 +15,7 @@
     # 検知には再生成が要る点は tests/tools/zip_entries.py 参照
     Import-Module (Join-Path $PSScriptRoot 'BucketManifests.psm1') -Force
     $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
-    $script:CurrentFontManifests = @(Get-FontManifestFile $script:BucketDir |
+    $script:CurrentFontManifests = @(Get-FontManifestFile -BucketDir $script:BucketDir -TestsDir $PSScriptRoot |
         ForEach-Object { $_.BaseName } | Sort-Object)
 }
 
