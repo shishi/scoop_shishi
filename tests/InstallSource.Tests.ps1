@@ -1,0 +1,36 @@
+﻿BeforeAll {
+    $script:Repo = Split-Path $PSScriptRoot
+    # scoop は SCOOP 環境変数でインストール先を変えられる
+    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
+    # 区切り文字はリテラルで書かない。ここは何段もの引用符を通って生成された
+    # ことがあり、バックスラッシュが黙って食われて TrimEnd('') + '' になっていた
+    # (見た目は通るし、前方一致としては動いてしまうので気づけない)
+    $script:Sep        = [IO.Path]::DirectorySeparatorChar
+    $script:RepoPrefix = $script:Repo.TrimEnd($script:Sep) + $script:Sep
+}
+
+Describe 'インストール元' {
+    It 'このリポジトリのローカル manifest から入ったままのアプリが無い' {
+        # 実機スイートは検証のためリポジトリ内の manifest を直接指して install する。
+        # 後片付けで元の出どころへ戻し損ねると、install.json にリポジトリのパスが
+        # 焼き付いたまま残る。そうなると:
+        #   - scoop update が bucket ではなくローカルファイルを見続け、
+        #     Excavator が上げた version を永久に拾わない
+        #   - scoop export した Scoopfile が、別マシンには存在しないパスを指す
+        #     (scoop import はその文字列をそのまま scoop install へ渡す)
+        # どちらも壊れ方が静かなので、実機の状態そのものを検査して留め金にする
+        $appsDir = Join-Path $script:ScoopRoot 'apps'
+        $stray = @(Get-ChildItem -LiteralPath $appsDir -Directory | ForEach-Object {
+            $installJson = Join-Path $_.FullName 'current\install.json'
+            if (Test-Path -LiteralPath $installJson) {
+                $info = Get-Content -LiteralPath $installJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                # 区切り文字まで含めて比べる。素の前方一致だと、隣に置かれた
+                # scoop_shishi-backup のような無関係のパスまで拾ってしまう
+                if ($info.url -and $info.url.StartsWith($script:RepoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                    $_.Name
+                }
+            }
+        })
+        ($stray -join ', ') | Should -BeNullOrEmpty
+    }
+}
