@@ -127,7 +127,29 @@ Describe 'win11debloat のインストールと更新' {
         # このスイートは persist の中身を意図的に壊す。実環境の保存設定や
         # レジストリバックアップを巻き添えにしないよう、丸ごと退避して
         # AfterAll で戻す。uninstall では persist は消えない
+        function script:Get-InstalledVersion {
+            $m = Join-Path $script:ScoopRoot 'apps\win11debloat\current\manifest.json'
+            if (Test-Path -LiteralPath $m) {
+                (Get-Content -LiteralPath $m -Raw -Encoding UTF8 | ConvertFrom-Json).version
+            }
+        }
+
         $script:WasInstalled = Test-Installed
+        # 入れ直すときの出どころを控える。無条件にこのリポジトリの manifest から
+        # 入れ直すと、bucket 経由で入っていた場合に install.json の bucket が
+        # リポジトリのパスに化け、版も勝手に上下する
+        $script:OriginalSource  = $null
+        $script:OriginalVersion = $null
+        if ($script:WasInstalled) {
+            $script:OriginalVersion = Get-InstalledVersion
+            $installJson = Join-Path $script:ScoopRoot 'apps\win11debloat\current\install.json'
+            if (Test-Path -LiteralPath $installJson) {
+                $info = Get-Content -LiteralPath $installJson -Raw -Encoding UTF8 | ConvertFrom-Json
+                $script:OriginalSource =
+                    if ($info.bucket)  { "$($info.bucket)/win11debloat" }
+                    elseif ($info.url) { $info.url }
+            }
+        }
         scoop uninstall win11debloat 2>&1 | Out-Null
         $script:PersistBackup = $null
         $script:PersistExistedAtStart = Test-Path -LiteralPath $script:Persist
@@ -176,7 +198,20 @@ Describe 'win11debloat のインストールと更新' {
                     }
                 }
             }
-            if ($script:WasInstalled) { scoop install $script:ManifestPath 2>&1 | Out-Null }
+            if ($script:WasInstalled) {
+                if ($script:OriginalSource) {
+                    scoop install $script:OriginalSource 2>&1 | Out-Null
+                } else {
+                    Write-Warning "元のインストール元が分からないので、リポジトリの manifest から入れ直した"
+                    scoop install $script:ManifestPath 2>&1 | Out-Null
+                }
+                # 版まで元どおりとは限らない(bucket が先に進んでいれば上がる)。
+                # 黙って変えたことにしないで報せる
+                $after = Get-InstalledVersion
+                if ($script:OriginalVersion -and $after -ne $script:OriginalVersion) {
+                    Write-Warning "入れ直しで版が $script:OriginalVersion から $after に変わった"
+                }
+            }
         }
     }
 
