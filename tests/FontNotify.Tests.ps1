@@ -1,5 +1,7 @@
 ﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
+    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\bizin-gothic-discord.json'
     $script:App      = 'bizin-gothic-discord'
@@ -24,13 +26,22 @@ if ([System.Windows.Media.Fonts]::SystemFontFamilies | Where-Object { `$_.Source
     }
 
     $script:TrueBefore   = Get-FontEnvSnapshot
-    $script:WasInstalled = ((scoop list $script:App 6>$null | Out-String) -match $script:App)
+    $script:WasInstalled = Test-AppInstalled -App $script:App -ScoopRoot $script:ScoopRoot
+    # 入れ直すときの出どころを uninstall の前に控える。控えずに
+    # $script:Manifest から入れ直すと install.json にリポジトリのパスが焼き付き、
+    # scoop update が bucket ではなくそのファイルを見続けることになる
+    $script:OrigSource  = Get-AppInstallSource    -App $script:App -ScoopRoot $script:ScoopRoot
+    $script:OrigVersion = Get-AppInstalledVersion -App $script:App -ScoopRoot $script:ScoopRoot
     scoop uninstall $script:App 2>&1 | Out-Null
 }
 
 AfterAll {
     scoop uninstall $script:App 2>&1 | Out-Null
-    if ($script:WasInstalled) { scoop install $script:Manifest 2>&1 | Out-Null }
+    if ($script:WasInstalled) {
+        Restore-AppInstall -App $script:App -ScoopRoot $script:ScoopRoot `
+            -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
+            -Fallback $script:Manifest
+    }
     Assert-FontEnvRestored -Before $script:TrueBefore
 }
 

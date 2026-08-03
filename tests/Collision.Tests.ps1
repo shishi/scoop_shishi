@@ -1,5 +1,7 @@
 ﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
+    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\biz-udgothic.json'
     $script:FontDir  = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
@@ -24,7 +26,12 @@
     # 順序が重要。app が入った状態で退避すると scoop が置いたファイルを掴んでしまい、
     # その下に隠れている「本当の元ファイル」を取り逃がす。先に uninstall して
     # 素の状態を露出させてから退避する
-    $script:WasInstalled = ((scoop list biz-udgothic 6>$null | Out-String) -match 'biz-udgothic')
+    $script:WasInstalled = Test-AppInstalled -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
+    # 入れ直すときの出どころを uninstall の前に控える。控えずに
+    # $script:Manifest から入れ直すと install.json にリポジトリのパスが焼き付き、
+    # scoop update が bucket ではなくそのファイルを見続けることになる
+    $script:OrigSource  = Get-AppInstallSource    -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
+    $script:OrigVersion = Get-AppInstalledVersion -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
     scoop uninstall biz-udgothic 2>&1 | Out-Null
 
     # このスイートが触りうるファイルは $script:Target だけではない。
@@ -196,7 +203,11 @@ AfterAll {
 
     try {
         # このスイートに入る前に入っていたなら入れ直す
-        if ($script:WasInstalled) { scoop install $script:Manifest 2>&1 | Out-Null }
+        if ($script:WasInstalled) {
+            Restore-AppInstall -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot `
+                -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
+                -Fallback $script:Manifest
+        }
     } catch { [void]$failures.Add("テスト前の状態への再インストール: $_"); Write-Host "テスト前の状態への再インストールに失敗: $_" -Foreground Red }
 
     if (-not $script:WasInstalled) {

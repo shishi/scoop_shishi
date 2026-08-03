@@ -1,5 +1,7 @@
 ﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
+    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\biz-udgothic.json'
     $script:FontDir  = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
@@ -15,7 +17,12 @@
     # スナップショットは強制 uninstall より「前」に取る。後で取ると
     # 「入っていた状態へ戻せたか」を検証する基準が失われる
     $script:TrueBefore   = Get-FontEnvSnapshot
-    $script:WasInstalled = ((scoop list biz-udgothic 6>$null | Out-String) -match 'biz-udgothic')
+    $script:WasInstalled = Test-AppInstalled -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
+    # 入れ直すときの出どころを uninstall の前に控える。控えずに
+    # $script:Manifest から入れ直すと install.json にリポジトリのパスが焼き付き、
+    # scoop update が bucket ではなくそのファイルを見続けることになる
+    $script:OrigSource  = Get-AppInstallSource    -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
+    $script:OrigVersion = Get-AppInstalledVersion -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
     scoop uninstall biz-udgothic 2>&1 | Out-Null
     $script:Before = Get-FontEnvSnapshot   # 「入っていない」状態の基準
 
@@ -24,7 +31,11 @@
 
 AfterAll {
     scoop uninstall biz-udgothic 2>&1 | Out-Null
-    if ($script:WasInstalled) { scoop install $script:Manifest 2>&1 | Out-Null }
+    if ($script:WasInstalled) {
+        Restore-AppInstall -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot `
+            -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
+            -Fallback $script:Manifest
+    }
     # 入れ直した結果が元どおりかまで確かめる。試みるだけでは、
     # 再インストールが冪等でなかったときに緑のまま環境がずれる
     Assert-FontEnvRestored -Before $script:TrueBefore

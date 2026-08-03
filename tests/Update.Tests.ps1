@@ -1,5 +1,9 @@
 ﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
+    Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
+    # scoop は SCOOP 環境変数でインストール先を変えられる。既定の
+    # %USERPROFILE%\scoop 決め打ちだと、それ以外の場所に入れている環境で壊れる
+    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
     $script:Repo    = Split-Path $PSScriptRoot
     $script:FontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
     $script:New     = Join-Path $script:Repo 'bucket\hackgen.json'
@@ -37,6 +41,11 @@
 
     # 本番の hackgen が入っていたら一旦外す。終了時に入れ直す
     $script:WasInstalled = (Test-HackgenListed '\S+')
+    # 入れ直すときの出どころを uninstall の前に控える。控えずに $script:New
+    # (リポジトリ内の manifest)から入れ直すと install.json にそのパスが焼き付き、
+    # scoop update が bucket ではなくそのファイルを見続けることになる
+    $script:OrigSource  = Get-AppInstallSource    -App 'hackgen' -ScoopRoot $script:ScoopRoot
+    $script:OrigVersion = Get-AppInstalledVersion -App 'hackgen' -ScoopRoot $script:ScoopRoot
     scoop uninstall hackgen 2>&1 | Out-Null
     $script:Before = Get-FontEnvSnapshot
 
@@ -57,9 +66,6 @@
     $m.extract_dir = 'HackGen_v2.9.1'
     $m.hash        = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
     $m | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $script:TmpManifest -Encoding UTF8
-    # scoop は SCOOP 環境変数でインストール先を変えられる。既定の
-    # %USERPROFILE%\scoop 決め打ちだと、それ以外の場所に入れている環境で壊れる
-    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
     & "$script:ScoopRoot\apps\scoop\current\bin\checkhashes.ps1" `
         -App 'hackgen' -Dir (Split-Path $script:TmpManifest) -Update 2>&1 | Out-Null
 
@@ -82,7 +88,11 @@ AfterAll {
     scoop uninstall hackgen 2>&1 | Out-Null
     scoop bucket rm $script:BucketName 2>&1 | Out-Null
     if (Test-Path $script:TmpBucket) { Remove-Item $script:TmpBucket -Recurse -Force }
-    if ($script:WasInstalled) { scoop install $script:New 2>&1 | Out-Null }
+    if ($script:WasInstalled) {
+        Restore-AppInstall -App 'hackgen' -ScoopRoot $script:ScoopRoot `
+            -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
+            -Fallback $script:New
+    }
     # 入れ直した結果が元どおりかまで確かめる(WasInstalled の分岐に関わらず常に)。
     # 試みるだけでは、再インストールが冪等でなかったときに緑のまま環境がずれる。
     # 比較対象は $script:TrueBefore(強制 uninstall より前の、真の元の状態)であって

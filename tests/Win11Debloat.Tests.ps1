@@ -95,45 +95,21 @@ Describe 'win11debloat manifest の静的検査' -Tag 'Static' {
 
 Describe 'win11debloat のインストールと更新' {
     BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
         $script:ManifestPath = Join-Path (Split-Path $PSScriptRoot) 'bucket\win11debloat.json'
         # scoop は SCOOP 環境変数でインストール先を変えられる。既定の
         # %USERPROFILE%\scoop 決め打ちだと、それ以外の場所に入れている環境で壊れる
         $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
         $script:Persist   = Join-Path $script:ScoopRoot 'persist\win11debloat'
 
-        # scoop list はグローバルインストールも並べる。それを「入っていた」と
-        # 数えると、AfterAll のローカル install がグローバル版と二重になる。
-        # このスイートが触るのはローカルだけなので、ローカルの実体だけを見る
-        function script:Test-Installed {
-            Test-Path -LiteralPath (Join-Path $script:ScoopRoot 'apps\win11debloat\current')
-        }
-
-        # このスイートは persist の中身を意図的に壊す。実環境の保存設定や
-        # レジストリバックアップを巻き添えにしないよう、丸ごと退避して
-        # AfterAll で戻す。uninstall では persist は消えない
-        function script:Get-InstalledVersion {
-            $m = Join-Path $script:ScoopRoot 'apps\win11debloat\current\manifest.json'
-            if (Test-Path -LiteralPath $m) {
-                (Get-Content -LiteralPath $m -Raw -Encoding UTF8 | ConvertFrom-Json).version
-            }
-        }
-
-        $script:WasInstalled = Test-Installed
-        # 入れ直すときの出どころを控える。無条件にこのリポジトリの manifest から
-        # 入れ直すと、bucket 経由で入っていた場合に install.json の bucket が
-        # リポジトリのパスに化け、版も勝手に上下する
-        $script:OriginalSource  = $null
-        $script:OriginalVersion = $null
-        if ($script:WasInstalled) {
-            $script:OriginalVersion = Get-InstalledVersion
-            $installJson = Join-Path $script:ScoopRoot 'apps\win11debloat\current\install.json'
-            if (Test-Path -LiteralPath $installJson) {
-                $info = Get-Content -LiteralPath $installJson -Raw -Encoding UTF8 | ConvertFrom-Json
-                $script:OriginalSource =
-                    if ($info.bucket)  { "$($info.bucket)/win11debloat" }
-                    elseif ($info.url) { $info.url }
-            }
-        }
+        # 「入っていたか」「どこから入れたか」「どの版か」の判定と入れ直しは、
+        # フォントの実機スイートと同じ ScoopApp.psm1 に寄せてある
+        $script:WasInstalled = Test-AppInstalled -App 'win11debloat' -ScoopRoot $script:ScoopRoot
+        # 入れ直すときの出どころを uninstall の前に控える。無条件にこのリポジトリの
+        # manifest から入れ直すと、bucket 経由で入っていた場合に install.json が
+        # リポジトリのパスに化け、scoop update が bucket を見なくなる
+        $script:OriginalSource  = Get-AppInstallSource    -App 'win11debloat' -ScoopRoot $script:ScoopRoot
+        $script:OriginalVersion = Get-AppInstalledVersion -App 'win11debloat' -ScoopRoot $script:ScoopRoot
         scoop uninstall win11debloat 2>&1 | Out-Null
         $script:PersistBackup = $null
         $script:PersistExistedAtStart = Test-Path -LiteralPath $script:Persist
@@ -183,39 +159,16 @@ Describe 'win11debloat のインストールと更新' {
                 }
             }
             if ($script:WasInstalled) {
-                # 出どころを優先順に試す。scoop install は失敗しても throw せず、
-                # 終了コードを見るだけでも「入ったこと」の確認にはならない。
-                # 実体が戻ったかで判定する
-                $sources = @()
-                if ($script:OriginalSource) { $sources += $script:OriginalSource }
-                if ($script:OriginalSource -ne $script:ManifestPath) { $sources += $script:ManifestPath }
-
-                foreach ($src in $sources) {
-                    scoop install $src 2>&1 | Out-Null
-                    if (Test-Installed) { break }
-                    Write-Warning "$src からの入れ直しに失敗した"
-                }
-
-                if (-not (Test-Installed)) {
-                    # ここまで来たらテストが環境からアプリを取り上げたままになる。
-                    # 黙って終わらせず、何を実行すれば戻るかまで出す
-                    $hint = if ($script:OriginalSource) { $script:OriginalSource } else { $script:ManifestPath }
-                    Write-Warning "win11debloat を入れ直せなかった。手で 'scoop install $hint' を実行すること"
-                } else {
-                    # 版まで元どおりとは限らない(bucket が先に進んでいれば上がる)。
-                    # 黙って変えたことにしないで報せる
-                    $after = Get-InstalledVersion
-                    if ($script:OriginalVersion -and $after -ne $script:OriginalVersion) {
-                        Write-Warning "入れ直しで版が $script:OriginalVersion から $after に変わった"
-                    }
-                }
+                Restore-AppInstall -App 'win11debloat' -ScoopRoot $script:ScoopRoot `
+                    -OriginalSource $script:OriginalSource -OriginalVersion $script:OriginalVersion `
+                    -Fallback $script:ManifestPath
             }
         }
     }
 
     It 'manifest から install できてシムが張られる' {
         scoop install $script:ManifestPath 2>&1 | Out-Null
-        Test-Installed | Should -BeTrue
+        Test-AppInstalled -App 'win11debloat' -ScoopRoot $script:ScoopRoot | Should -BeTrue
         Join-Path $script:ScoopRoot 'shims\win11debloat.cmd' | Should -Exist
     }
 
