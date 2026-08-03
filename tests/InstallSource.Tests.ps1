@@ -2,6 +2,7 @@
     $script:Repo = Split-Path $PSScriptRoot
     # scoop は SCOOP 環境変数でインストール先を変えられる
     $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
+    $script:RepoPrefix = $script:Repo.TrimEnd('') + ''
 }
 
 Describe 'インストール元' {
@@ -19,7 +20,9 @@ Describe 'インストール元' {
             $installJson = Join-Path $_.FullName 'current\install.json'
             if (Test-Path -LiteralPath $installJson) {
                 $info = Get-Content -LiteralPath $installJson -Raw -Encoding UTF8 | ConvertFrom-Json
-                if ($info.url -and $info.url.StartsWith($script:Repo, [StringComparison]::OrdinalIgnoreCase)) {
+                # 区切り文字まで含めて比べる。素の前方一致だと、隣に置かれた
+                # scoop_shishi-backup のような無関係のパスまで拾ってしまう
+                if ($info.url -and $info.url.StartsWith($script:RepoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
                     $_.Name
                 }
             }
