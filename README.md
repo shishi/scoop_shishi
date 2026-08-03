@@ -34,5 +34,8 @@ scoop bucket add shishi https://github.com/shishi/scoop_shishi
 | `tclock-win10` | https://github.com/MantisMountainMobile/TClock-Win10 |
 | `umaumachecker` | https://github.com/Cilda/UmaUmaChecker |
 | `umaumacruise` | https://github.com/amate/UmaUmaCruise |
+| `skip-uac-prompt` | https://www.sordum.org/skip-uac-prompt |
 
 `win11debloat` は Windows PowerShell 5.1 を名指しで起動する（本体が pwsh を拒否するため）。起動時に作業ディレクトリをアプリ配下へ移すので、`-Apps` や `-Config` にはフルパスを渡すこと。
+
+`skip-uac-prompt` の配布 URL は版を含まない固定 URL なので、新版が出ても checkver が拾うのは hash だけになる（version は配布ページの `Skip UAC Prompt v1.3` から読む）。zip の最上位は版に依らず `SkipUAC` 固定なので `extract_dir` も固定。コマンド名は 32/64bit どちらでも `skipuac` に揃えてある。
