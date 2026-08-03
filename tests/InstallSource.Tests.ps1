@@ -2,7 +2,11 @@
     $script:Repo = Split-Path $PSScriptRoot
     # scoop は SCOOP 環境変数でインストール先を変えられる
     $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
-    $script:RepoPrefix = $script:Repo.TrimEnd('') + ''
+    # 区切り文字はリテラルで書かない。ここは何段もの引用符を通って生成された
+    # ことがあり、バックスラッシュが黙って食われて TrimEnd('') + '' になっていた
+    # (見た目は通るし、前方一致としては動いてしまうので気づけない)
+    $script:Sep        = [IO.Path]::DirectorySeparatorChar
+    $script:RepoPrefix = $script:Repo.TrimEnd($script:Sep) + $script:Sep
 }
 
 Describe 'インストール元' {
