@@ -199,17 +199,31 @@ Describe 'win11debloat のインストールと更新' {
                 }
             }
             if ($script:WasInstalled) {
-                if ($script:OriginalSource) {
-                    scoop install $script:OriginalSource 2>&1 | Out-Null
-                } else {
-                    Write-Warning "元のインストール元が分からないので、リポジトリの manifest から入れ直した"
-                    scoop install $script:ManifestPath 2>&1 | Out-Null
+                # 出どころを優先順に試す。scoop install は失敗しても throw せず、
+                # 終了コードを見るだけでも「入ったこと」の確認にはならない。
+                # 実体が戻ったかで判定する
+                $sources = @()
+                if ($script:OriginalSource) { $sources += $script:OriginalSource }
+                if ($script:OriginalSource -ne $script:ManifestPath) { $sources += $script:ManifestPath }
+
+                foreach ($src in $sources) {
+                    scoop install $src 2>&1 | Out-Null
+                    if (Test-Installed) { break }
+                    Write-Warning "$src からの入れ直しに失敗した"
                 }
-                # 版まで元どおりとは限らない(bucket が先に進んでいれば上がる)。
-                # 黙って変えたことにしないで報せる
-                $after = Get-InstalledVersion
-                if ($script:OriginalVersion -and $after -ne $script:OriginalVersion) {
-                    Write-Warning "入れ直しで版が $script:OriginalVersion から $after に変わった"
+
+                if (-not (Test-Installed)) {
+                    # ここまで来たらテストが環境からアプリを取り上げたままになる。
+                    # 黙って終わらせず、何を実行すれば戻るかまで出す
+                    $hint = if ($script:OriginalSource) { $script:OriginalSource } else { $script:ManifestPath }
+                    Write-Warning "win11debloat を入れ直せなかった。手で 'scoop install $hint' を実行すること"
+                } else {
+                    # 版まで元どおりとは限らない(bucket が先に進んでいれば上がる)。
+                    # 黙って変えたことにしないで報せる
+                    $after = Get-InstalledVersion
+                    if ($script:OriginalVersion -and $after -ne $script:OriginalVersion) {
+                        Write-Warning "入れ直しで版が $script:OriginalVersion から $after に変わった"
+                    }
                 }
             }
         }
