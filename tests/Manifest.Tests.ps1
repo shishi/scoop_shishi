@@ -2,6 +2,233 @@
     Import-Module (Join-Path $PSScriptRoot 'BucketManifests.psm1') -Force
     $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
     $script:ManifestFiles = Get-FontManifestFile -BucketDir $script:BucketDir -TestsDir $PSScriptRoot
+    # フォント以外も含めた全件。下の Describe はフォント専用の共有スクリプトを
+    # 見るのでフォントの判別が要るが、bucket 全体に掛かる決まりはこちらで見る
+    $script:AllManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json')
+}
+
+Describe 'bucket 全体の静的検査' -Tag 'Static' {
+    BeforeAll {
+        # scoop の Get-VersionSubstitution と同じ表を、scoop の substitute と同じ
+        # 素の文字列置換で当てる。substitute が見るのは '$version' のような素の
+        # トークンだけで、${version} 形式は展開されない。1 つでも欠けると、その
+        # 置換子を使った正しい manifest を嘘の赤で落とすことになる
+        $script:ExpandVersion = {
+            param([string]$Template, [string]$Version)
+            $first = $Version.Split('-') | Select-Object -First 1
+            $parts = $first.Split('.')
+            $vars = @{
+                'version'           = $Version
+                'dotVersion'        = ($Version -replace '[._-]', '.')
+                'underscoreVersion' = ($Version -replace '[._-]', '_')
+                'dashVersion'       = ($Version -replace '[._-]', '-')
+                'cleanVersion'      = ($Version -replace '[._-]', '')
+                'majorVersion'      = ($parts | Select-Object -First 1)
+                'minorVersion'      = ($parts | Select-Object -Skip 1 -First 1)
+                'patchVersion'      = ($parts | Select-Object -Skip 2 -First 1)
+                'buildVersion'      = ($parts | Select-Object -Skip 3 -First 1)
+                'preReleaseVersion' = ($Version.Split('-') | Select-Object -Last 1)
+            }
+            if ($Version -match '(?<head>\d+\.\d+(?:\.\d+)?)(?<tail>.*)') {
+                $vars['matchHead'] = $Matches['head']
+                $vars['matchTail'] = $Matches['tail']
+            }
+            $s = $Template
+            # 長い名前から潰す。'$version' を先に消すと '$versionXxx' 形の
+            # 置換子が食われる
+            foreach ($k in ($vars.Keys | Sort-Object { $_.Length } -Descending)) {
+                $v = if ($null -eq $vars[$k]) { '' } else { [string]$vars[$k] }
+                $s = $s.Replace('$' + $k, $v)
+            }
+            $s
+        }
+
+        # checkver の名前付きキャプチャ($matchFoo)は version だけからは組み立て
+        # られない。展開できなくても manifest の不備ではないので取り除いて見る
+        $script:DropCustomMatches = { param([string]$Text) $Text -replace '\$match[A-Z]\w*', '' }
+
+        # 各 manifest の autoupdate から、version を埋めて使われるテンプレートを
+        # 場所つきで拾う。hash の regex などは $basename や $sha256 を正当に含む
+        # ので対象にしない
+        $script:AutoupdateTemplates = {
+            param($Json)
+            $au = $Json.autoupdate
+            $found = @()
+            foreach ($prop in 'url', 'extract_dir') {
+                if ($au.$prop) {
+                    $found += [pscustomobject]@{ Where = "autoupdate.$prop"; Text = ($au.$prop -join ' ') }
+                }
+                if ($au.architecture) {
+                    foreach ($a in @($au.architecture.PSObject.Properties.Name)) {
+                        if ($au.architecture.$a.$prop) {
+                            $found += [pscustomobject]@{ Where = "autoupdate.architecture.$a.$prop"; Text = ($au.architecture.$a.$prop -join ' ') }
+                        }
+                    }
+                }
+            }
+            $found
+        }
+    }
+
+    # shovel の PR Validator は変更された manifest について Description と License を
+    # 検査する。フォント manifest の必須キー検査はフォント以外を除外しているので、
+    # tclock-win10 / umaumachecker / umaumacruise の 3 件が未記入のまま残っていた。
+    # 除外リストの外側に置いて、bucket に増える manifest すべてを網に掛ける
+    It '<_.BaseName> に description がある' -ForEach $script:AllManifestFiles {
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        $j.description | Should -Not -BeNullOrEmpty
+    }
+
+    It '<_.BaseName> に license がある' -ForEach $script:AllManifestFiles {
+        # license は文字列(SPDX 識別子)でも { identifier, url } のオブジェクトでもよい。
+        # オブジェクト形式で identifier が空だと Should -Not -BeNullOrEmpty は
+        # 通ってしまうので、識別子そのものを取り出して見る
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        $lic = $j.license
+        $id = if ($lic -is [string]) { $lic } else { $lic.identifier }
+        $id | Should -Not -BeNullOrEmpty
+    }
+
+    # BOM / CRLF はファイルの体裁なのでフォントかどうかに関係が無い。
+    # フォント側の Describe に置いていたぶん、非フォントの 6 件は素通りしていた
+    It '<_.BaseName> に BOM が付いていない' -ForEach $script:AllManifestFiles {
+        $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
+        ($head -join ',') | Should -Not -Be '239,187,191'
+    }
+
+    It '<_.BaseName> の改行が CRLF に揃っている' -ForEach $script:AllManifestFiles {
+        $b = [IO.File]::ReadAllBytes($_.FullName)
+        $lf = 0; $crlf = 0
+        for ($i = 0; $i -lt $b.Length; $i++) {
+            if ($b[$i] -ne 10) { continue }
+            if ($i -gt 0 -and $b[$i - 1] -eq 13) { $crlf++ } else { $lf++ }
+        }
+        $crlf | Should -BeGreaterThan 0
+        $lf   | Should -Be 0
+    }
+
+    It '<_.BaseName> の URL が平文 http でない' -ForEach $script:AllManifestFiles {
+        # 配布元が https を持っているのに http のまま書いてある manifest があった
+        # (mery。実測: http は https へ 301 され、https で直接叩いても同じ
+        # 6,096,429 バイトが返る)。
+        #
+        # 「hash を固定しているから平文でも安全」は install 経路にしか当てはまらない。
+        # mery は autoupdate.hash を持たないので、checkver は落としたバイト列から
+        # hash を計算して manifest へ書き込む(実測: `Downloading ... to compute
+        # hashes!`)。Excavator はこれを毎時回して自動 commit するので、平文のままだと
+        # 差し替えられた中身の hash がそのまま「正しい hash」として焼き付く。
+        #
+        # 生の本文を走査すると、XML の名前空間 URI(識別子であって取得先ではない)や
+        # web.archive.org の URL に入れ子になった http まで拾ってしまう。とくに
+        # installer.script は sync_scripts.py が 16 manifest へ配るので、1 本の
+        # リンクで 16 件が同時に落ちて「名前空間を https にする」という誤った修正へ
+        # 誘導される。取得先として使われるキーだけを見て、スキームの位置で判定する。
+        #
+        # 将来 https を持たない配布元が出てきたら、この判定を緩めるのではなく
+        # 「その 1 件だけを明示的に除外する」形にすること
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        $nodes = @($j, $j.autoupdate)
+        foreach ($arch in $j.architecture, $j.autoupdate.architecture) {
+            if ($arch) {
+                foreach ($a in @($arch.PSObject.Properties.Name)) { $nodes += $arch.$a }
+            }
+        }
+
+        $urls = @()
+        foreach ($n in $nodes) {
+            if (-not $n) { continue }
+            foreach ($key in 'url', 'homepage') { if ($n.$key) { $urls += @($n.$key) } }
+            if ($n.hash.url) { $urls += @($n.hash.url) }
+        }
+        # checkver も license も文字列のことがある('github' / 'MIT')。
+        # 文字列に .url を引くと $null になるだけなので分岐は要らない
+        foreach ($n in $j.checkver, $j.license) { if ($n.url) { $urls += @($n.url) } }
+
+        # スキームは値の先頭。含まれているかで見ると
+        # https://web.archive.org/web/2020id_/http://... のような正当な値を落とす。
+        # (?i) はスキームが大文字小文字を区別しないため(HTTP:// も取得先は平文)
+        $bad = @($urls | Where-Object { $_ -match '(?i)^http://' })
+        ($bad -join ', ') | Should -BeNullOrEmpty
+    }
+
+    It '<_.BaseName> の autoupdate テンプレートを scoop が展開できる' -ForEach $script:AllManifestFiles {
+        # scoop の substitute は素の文字列置換で、置換表の鍵は '$version' のような
+        # 素のトークン。${version} 形式は一致せず、そのまま残る。tclock-win10 が
+        # これで、2022 年に入った ${version}/${cleanVersion} が今の shovel では
+        # 展開されない(実測: checkver -Update -ForceUpdate が
+        # `.../download/${version}/TClock-Win10_${cleanVersion}_64bit.zip` を
+        # そのまま叩いて 404 で失敗した)。checkver は成功したまま autoupdate だけが
+        # 死ぬので、次のリリースが来るまで誰も気づかない
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($t in @(& $script:AutoupdateTemplates $j)) {
+            $left = & $script:DropCustomMatches (& $script:ExpandVersion $t.Text $j.version)
+            $left | Should -Not -Match '\$' -Because "$($t.Where) に scoop が展開できない置換子が残る"
+        }
+    }
+
+    It '<_.BaseName> の extract_dir を autoupdate が維持できる' -ForEach $script:AllManifestFiles {
+        # tclock-win10 は extract_dir を top-level に、autoupdate のテンプレートを
+        # architecture.64bit に置いていた。scoop の autoupdate は同じ場所しか書き換え
+        # ないので、version が 5.1.6.1 から 2 回上がっても extract_dir は 5161 のまま
+        # 取り残された(実測: 5.4.1.1 の zip の最上位は TClock-Win10_5411_64bit)。
+        # scoop は 7-Zip に -ir!<extract_dir>\* を渡すので、存在しないディレクトリでも
+        # 「No files to process / Everything is Ok」で正常終了し、0 件を取り出す(実測)。
+        # 壊れていることが install の失敗としてしか表に出てこないので静的に留める
+        $j = Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+
+        # scoop の Update-ManifestProperty と同じ順に更新先を決める。
+        # top-level は「値もテンプレートも top-level にある」ときだけ、そうでなければ
+        # architecture ごとに見て、テンプレートは arch 側 → top-level の順に探す
+        $au = $j.autoupdate
+        $targets = @()
+        if ($j.extract_dir -and $au.extract_dir) {
+            $targets += [pscustomobject]@{ Where = 'top-level'; Value = $j.extract_dir; Template = $au.extract_dir }
+            # この枝に入ると scoop は top-level だけを書き換えて終わる。一方 install が
+            # 読むのは arch_specific なので architecture 側があればそちらが勝つ。
+            # 両方あると「更新される値」と「使われる値」が別物になり、また取り残される
+            if ($j.architecture) {
+                foreach ($a in @($j.architecture.PSObject.Properties.Name)) {
+                    $j.architecture.$a.extract_dir | Should -BeNullOrEmpty -Because "top-level の extract_dir が autoupdate の更新先なのに architecture.$a が上書きしている。install で使われるのは architecture.$a 側で、そちらは更新されない"
+                }
+            }
+        } elseif ($j.architecture) {
+            foreach ($a in @($j.architecture.PSObject.Properties.Name)) {
+                $tpl = if ($au.architecture.$a.extract_dir) { $au.architecture.$a.extract_dir } else { $au.extract_dir }
+                if ($j.architecture.$a.extract_dir -and $tpl) {
+                    $targets += [pscustomobject]@{ Where = "architecture.$a"; Value = $j.architecture.$a.extract_dir; Template = $tpl }
+                }
+            }
+        }
+
+        $hasTemplate = [bool]$au.extract_dir
+        if (-not $hasTemplate -and $au.architecture) {
+            foreach ($a in @($au.architecture.PSObject.Properties.Name)) {
+                if ($au.architecture.$a.extract_dir) { $hasTemplate = $true }
+            }
+        }
+        if ($hasTemplate) {
+            $targets.Count | Should -BeGreaterThan 0 -Because 'autoupdate に extract_dir のテンプレートがあるのに、scoop が書き換える場所に extract_dir が無い。よそに置いた値は更新されず取り残される'
+        }
+
+        foreach ($t in $targets) {
+            # extract_dir は url と 1 対 1 で並ぶ配列でもよい(schema は
+            # stringOrArrayOfStrings、decompress.ps1 も @(extract_dir ...) して
+            # url ごとに引いている)。素の文字列として扱うと配列がスペース連結の
+            # 1 本に潰れ、正しい manifest を「version と食い違っている」という
+            # 見当違いの理由で落とす。両辺を配列に揃えて要素ごとに見る
+            $tpls = @($t.Template)
+            $vals = @($t.Value)
+            $vals.Count | Should -Be $tpls.Count -Because "$($t.Where) の extract_dir とテンプレートで件数が合わない"
+            for ($i = 0; $i -lt $tpls.Count; $i++) {
+                # 名前付きキャプチャが混じるものは version だけからは決まらないので
+                # 突き合わせない。それ以外の展開漏れは上の It が落とす
+                if ((& $script:DropCustomMatches $tpls[$i]) -ne $tpls[$i]) { continue }
+                # 誤っているのは manifest 側なので、そちらを actual に置く
+                $vals[$i] | Should -Be (& $script:ExpandVersion $tpls[$i] $j.version) -Because "$($t.Where) の extract_dir[$i] が現在の version と食い違っている"
+            }
+        }
+    }
 }
 
 Describe 'manifest の静的検査' -Tag 'Static' {
@@ -102,22 +329,6 @@ Describe 'manifest の静的検査' -Tag 'Static' {
         # キー作成が入っていることを静的に検査する
         $s = ($script:Fonts[0].Json.installer.script -join "`n")
         $s | Should -Match 'New-Item\s+-Path\s+\$regKey\s+-Force'
-    }
-
-    It '<_.BaseName> に BOM が付いていない' -ForEach $script:ManifestFiles {
-        $head = [IO.File]::ReadAllBytes($_.FullName)[0..2]
-        ($head -join ',') | Should -Not -Be '239,187,191'
-    }
-
-    It '<_.BaseName> の改行が CRLF に揃っている' -ForEach $script:ManifestFiles {
-        $b = [IO.File]::ReadAllBytes($_.FullName)
-        $lf = 0; $crlf = 0
-        for ($i = 0; $i -lt $b.Length; $i++) {
-            if ($b[$i] -ne 10) { continue }
-            if ($i -gt 0 -and $b[$i - 1] -eq 13) { $crlf++ } else { $lf++ }
-        }
-        $crlf | Should -BeGreaterThan 0
-        $lf   | Should -Be 0
     }
 
     It 'sync_scripts.py を走らせても manifest が変化しない（冪等）' {

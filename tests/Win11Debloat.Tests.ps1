@@ -91,23 +91,7 @@ Describe 'win11debloat manifest の静的検査' -Tag 'Static' {
                 Should -BeNullOrEmpty
         }
     }
-
-    It 'BOM が付いていない' {
-        $head = [IO.File]::ReadAllBytes($script:Manifest)[0..2]
-        ($head -join ',') | Should -Not -Be '239,187,191'
-    }
-
-    It '改行が CRLF に揃っている' {
-        $b = [IO.File]::ReadAllBytes($script:Manifest)
-        $lf = 0; $crlf = 0
-        for ($i = 0; $i -lt $b.Length; $i++) {
-            if ($b[$i] -ne 10) { continue }
-            if ($i -gt 0 -and $b[$i - 1] -eq 13) { $crlf++ } else { $lf++ }
-        }
-        $crlf | Should -BeGreaterThan 0
-        $lf   | Should -Be 0
-    }
-}
+}
 
 Describe 'win11debloat のインストールと更新' {
     BeforeAll {
