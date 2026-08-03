@@ -13,9 +13,9 @@
     # 記録された version を manifest の現在の version と突き合わせる(下の It)。
     # URL の中身そのものの変更(version 据え置きでの差し替えなど)までは検知できない。
     # 検知には再生成が要る点は tests/tools/zip_entries.py 参照
+    Import-Module (Join-Path $PSScriptRoot 'BucketManifests.psm1') -Force
     $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
-    $script:CurrentFontManifests = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
-        Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') } |
+    $script:CurrentFontManifests = @(Get-FontManifestFile -BucketDir $script:BucketDir -TestsDir $PSScriptRoot |
         ForEach-Object { $_.BaseName } | Sort-Object)
 }
 

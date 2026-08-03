@@ -1,9 +1,9 @@
 ﻿BeforeDiscovery {
+    Import-Module (Join-Path $PSScriptRoot 'BucketManifests.psm1') -Force
     $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
-    $script:ManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
-        Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') })
+    $script:ManifestFiles = Get-FontManifestFile -BucketDir $script:BucketDir -TestsDir $PSScriptRoot
     # フォント以外も含めた全件。下の Describe はフォント専用の共有スクリプトを
-    # 見るので除外リストが要るが、bucket 全体に掛かる決まりはこちらで見る
+    # 見るのでフォントの判別が要るが、bucket 全体に掛かる決まりはこちらで見る
     $script:AllManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json')
 }
 
@@ -233,19 +233,44 @@ Describe 'bucket 全体の静的検査' -Tag 'Static' {
 
 Describe 'manifest の静的検査' -Tag 'Static' {
     BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'BucketManifests.psm1') -Force
         $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
-        $script:Fonts = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
-            Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') } |
-            ForEach-Object { [pscustomobject]@{ Name = $_.BaseName; Json = (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) } })
         # BeforeDiscovery の $script:ManifestFiles は Discovery フェーズ限定で、
         # -ForEach では使えても Run フェーズの通常 It 本体からは見えない（実測: Count が 0 になる）。
-        # ここで BeforeAll として同じフィルタを再設定し、Run フェーズでも参照できるようにする
-        $script:ManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
-            Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') })
+        # ここで BeforeAll として同じものを取り直し、Run フェーズでも参照できるようにする
+        $script:ManifestFiles = Get-FontManifestFile -BucketDir $script:BucketDir -TestsDir $PSScriptRoot
+        $script:Fonts = @($script:ManifestFiles |
+            ForEach-Object { [pscustomobject]@{ Name = $_.BaseName; Json = (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) } })
     }
 
     It 'フォント manifest が 1 つ以上ある' {
         $script:Fonts.Count | Should -BeGreaterThan 0
+    }
+
+    It '名簿に載っている manifest がすべて実在する' {
+        # 名簿(tests/fixtures/font-manifests.json)は sync_scripts.py と
+        # テストの共通の正本。manifest を消して名簿を直し忘れると、
+        # 配布も検査も静かに対象外になる
+        $roster  = Get-FontRoster -TestsDir $PSScriptRoot
+        $missing = @($roster | Where-Object {
+            -not (Test-Path -LiteralPath (Join-Path $script:BucketDir "$_.json"))
+        })
+        ($missing -join ', ') | Should -BeNullOrEmpty
+    }
+
+    It 'installer を持つ manifest がすべて名簿に載っている' {
+        # 名簿方式そのものの穴を塞ぐ。フォントを足して名簿に書き忘れると、
+        # 共有スクリプトの同一性検査からも Uniqueness の突き合わせからも
+        # 外れて黙って通る。共有 installer を持つのは名簿のフォントだけ、を留め金にする。
+        # 逆向き(installer を書き忘れたフォント)は、名簿に載っている限り
+        # フォントとして検査され「installer.script が全 manifest で完全に同一」で落ちる
+        $roster = Get-FontRoster -TestsDir $PSScriptRoot
+        $stray  = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
+            Where-Object { $_.BaseName -notin $roster } |
+            Where-Object {
+                (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json).PSObject.Properties.Name -contains 'installer'
+            } | ForEach-Object { $_.BaseName })
+        ($stray -join ', ') | Should -BeNullOrEmpty
     }
 
     It '<_.BaseName> に必須キーが揃っている' -ForEach $script:ManifestFiles {

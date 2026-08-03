@@ -60,16 +60,23 @@ def apply(path, blocks):
     os.replace(tmp, path)
 
 
-FONT_MANIFESTS = {
-    'biz-udgothic', 'biz-udmincho', 'bizin-gothic', 'bizin-gothic-discord',
-    'bizin-gothic-nf', 'bizter', 'hackgen', 'hackgen-nf', 'notonoto',
-    'noto-color-emoji', 'noto-sans-jp', 'noto-serif-jp', 'plemoljp',
-    'plemoljp-nf', 'udev-gothic', 'udev-gothic-nf',
-}
+FONT_ROSTER = os.path.join(REPO, 'tests', 'fixtures', 'font-manifests.json')
+
+
+def load_font_manifests():
+    """フォント manifest の名簿。テスト側(BucketManifests.psm1)と共有する正本。
+
+    manifest の中身から判別すると、検査したいプロパティ自身が「検査するか
+    どうか」を決めてしまう(installer を書き忘れた manifest が、まさにその
+    installer が無いことを理由にフォント扱いから外れ、黙って素通りする)。
+    """
+    with io.open(FONT_ROSTER, encoding='utf-8') as f:
+        return set(json.load(f)['fonts'])
 
 
 def main():
     blocks = load_blocks()
+    FONT_MANIFESTS = load_font_manifests()
     names = sorted(n for n in os.listdir(BUCKET)
                    if n.endswith('.json') and n[:-5] in FONT_MANIFESTS)
     if not names:

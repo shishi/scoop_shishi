@@ -28,8 +28,11 @@ scoop bucket add shishi https://github.com/shishi/scoop_shishi
 | manifest | 配布元 |
 |---|---|
 | `mery` | https://www.haijin-boys.com/wiki/ |
+| `win11debloat` | https://github.com/Raphire/Win11Debloat |
 | `crvskkserv` | https://github.com/nathancorvussolis/crvskkserv |
 | `nomeiryoui` | https://github.com/Tatsu-syo/noMeiryoUI |
 | `tclock-win10` | https://github.com/MantisMountainMobile/TClock-Win10 |
 | `umaumachecker` | https://github.com/Cilda/UmaUmaChecker |
 | `umaumacruise` | https://github.com/amate/UmaUmaCruise |
+
+`win11debloat` は Windows PowerShell 5.1 を名指しで起動する（本体が pwsh を拒否するため）。起動時に作業ディレクトリをアプリ配下へ移すので、`-Apps` や `-Config` にはフルパスを渡すこと。
