@@ -28,6 +28,7 @@ scoop bucket add shishi https://github.com/shishi/scoop_shishi
 | manifest | 配布元 |
 |---|---|
 | `mery` | https://www.haijin-boys.com/wiki/ |
+| `win11debloat` | https://github.com/Raphire/Win11Debloat |
 | `crvskkserv` | https://github.com/nathancorvussolis/crvskkserv |
 | `nomeiryoui` | https://github.com/Tatsu-syo/noMeiryoUI |
 | `tclock-win10` | https://github.com/MantisMountainMobile/TClock-Win10 |

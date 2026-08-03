@@ -1,0 +1,43 @@
+{
+    "version": "2026.07.11",
+    "description": "Win11Debloat — Windows 10/11 のプリインストールアプリ削除・テレメトリ無効化などをまとめて行う PowerShell スクリプト",
+    "homepage": "https://github.com/Raphire/Win11Debloat",
+    "license": "MIT",
+    "url": "https://github.com/Raphire/Win11Debloat/archive/refs/tags/2026.07.11.zip",
+    "hash": "e97c8e36698c7b543da0b77cc34439c1a0b4917525b45a9d1ae7a02e23d4711d",
+    "extract_dir": "Win11Debloat-2026.07.11",
+    "bin": [
+        [
+            "Win11Debloat.ps1",
+            "win11debloat"
+        ]
+    ],
+    "shortcuts": [
+        [
+            "Run.bat",
+            "Win11Debloat"
+        ]
+    ],
+    "persist": [
+        "Config",
+        "Backups",
+        "Logs"
+    ],
+    "post_install": [
+        "# scoop は persist 先が既にあると、zip から出たての Config を消さずに",
+        "# Config.original へ退避してから junction を張る(lib/install.ps1 の persist_data)。",
+        "# 版ごとに更新される既定値(Apps.json / Features.json / DefaultSettings.json)は",
+        "# そこに居るので persist 側へ書き戻す。書き戻さないと初回インストール時の",
+        "# 内容が居座り、新版で増えた機能が画面に出てこない。",
+        "# 利用者の LastUsedSettings.json は zip に無いので上書きされない",
+        "if (Test-Path -LiteralPath \"$dir\\Config.original\") {",
+        "    Copy-Item \"$dir\\Config.original\\*\" \"$dir\\Config\" -Recurse -Force",
+        "    Remove-Item \"$dir\\Config.original\" -Recurse -Force",
+        "}"
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "url": "https://github.com/Raphire/Win11Debloat/archive/refs/tags/$version.zip",
+        "extract_dir": "Win11Debloat-$version"
+    }
+}
