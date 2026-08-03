@@ -43,8 +43,10 @@
     "post_install": "Remove-Item \"$dir\\*.original\" -Recurse -Force",
     "notes": [
         "アンインストールする前に File メニューの \"Remove Data and Exit\"(v1.1 で追加。VersionInfo.txt)で登録済みアプリを片付けること。scoop uninstall はアプリ配下しか消さない。",
-        "SkipUAC.ini は設定と全言語の翻訳が同じファイルに入っている(UTF-16LE)。persist するので設定は版をまたいで残るが、そのぶん新版の翻訳文は反映されない。",
-        "sordum.org は GitHub Actions のランナーへ zip を返さないので autoupdate を持たせていない。新版は手で version と hash を上げること(checkver は普通のマシンからなら動く)。"
+        "SkipUAC.ini は設定と全言語の翻訳が同じファイルに入っている(UTF-16LE)。persist するので設定は版をまたいで残るが、そのぶん新版の翻訳文は反映されない。"
     ],
-    "checkver": "Skip UAC Prompt v([\\d.]+)"
+    "checkver": "Skip UAC Prompt v([\\d.]+)",
+    "autoupdate": {
+        "url": "https://www.sordum.org/files/download/skip-uac-prompt/SkipUAC.zip"
+    }
 }
