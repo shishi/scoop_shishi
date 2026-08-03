@@ -35,7 +35,10 @@ scoop bucket add shishi https://github.com/shishi/scoop_shishi
 | `umaumachecker` | https://github.com/Cilda/UmaUmaChecker |
 | `umaumacruise` | https://github.com/amate/UmaUmaCruise |
 | `skip-uac-prompt` | https://www.sordum.org/skip-uac-prompt |
+| `xcolumn` | https://github.com/mashersan/XColumn |
 
 `win11debloat` は Windows PowerShell 5.1 を名指しで起動する（本体が pwsh を拒否するため）。起動時に作業ディレクトリをアプリ配下へ移すので、`-Apps` や `-Config` にはフルパスを渡すこと。
 
 `skip-uac-prompt` の配布 URL は版を含まない固定 URL なので、新版が出ても checkver が拾うのは hash だけになる（version は配布ページの `Skip UAC Prompt v1.3` から読む）。zip の最上位は版に依らず `SkipUAC` 固定なので `extract_dir` も固定。コマンド名は 32/64bit どちらでも `skipuac` に揃えてある。
+
+`xcolumn` は framework-dependent ビルドを配る（`XColumn.exe` は AMD64 なので 64bit 専用）。.NET 8 デスクトップランタイムと WebView2 ランタイムが要るので `suggest` に入れてある。ランタイムを入れたくないなら、同じリリースの `_Contained.zip`（自己完結ビルド。`XColumn.exe` だけで 167MB）を手で使うこと。設定と Cookie は `%APPDATA%\XColumn` にあり `scoop uninstall` では消えない。
