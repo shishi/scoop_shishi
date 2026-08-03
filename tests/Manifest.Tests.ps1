@@ -1,20 +1,19 @@
 ﻿BeforeDiscovery {
+    Import-Module (Join-Path $PSScriptRoot 'BucketManifests.psm1') -Force
     $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
-    $script:ManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
-        Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') })
+    $script:ManifestFiles = Get-FontManifestFile $script:BucketDir
 }
 
 Describe 'manifest の静的検査' -Tag 'Static' {
     BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'BucketManifests.psm1') -Force
         $script:BucketDir = Join-Path (Split-Path $PSScriptRoot) 'bucket'
-        $script:Fonts = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
-            Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') } |
-            ForEach-Object { [pscustomobject]@{ Name = $_.BaseName; Json = (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) } })
         # BeforeDiscovery の $script:ManifestFiles は Discovery フェーズ限定で、
         # -ForEach では使えても Run フェーズの通常 It 本体からは見えない（実測: Count が 0 になる）。
-        # ここで BeforeAll として同じフィルタを再設定し、Run フェーズでも参照できるようにする
-        $script:ManifestFiles = @(Get-ChildItem $script:BucketDir -Filter '*.json' |
-            Where-Object { $_.BaseName -notin @('crvskkserv','mery','nomeiryoui','tclock-win10','umaumachecker','umaumacruise') })
+        # ここで BeforeAll として同じものを取り直し、Run フェーズでも参照できるようにする
+        $script:ManifestFiles = Get-FontManifestFile $script:BucketDir
+        $script:Fonts = @($script:ManifestFiles |
+            ForEach-Object { [pscustomobject]@{ Name = $_.BaseName; Json = (Get-Content $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json) } })
     }
 
     It 'フォント manifest が 1 つ以上ある' {
