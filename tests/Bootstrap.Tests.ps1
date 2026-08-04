@@ -19,9 +19,14 @@ Describe 'テスト実行の入口' -Tag 'Static' {
         $scratch = Join-Path $env:TEMP ("invoke-probe-" + [Guid]::NewGuid().ToString('n'))
         New-Item $scratch -ItemType Directory -Force | Out-Null
         try {
+            # 本物の bootstrap.ps1 と同じく Microsoft.PowerShell.Utility を先に読む。
+            # Pester 5.9.0 は Add-Member をこのモジュールから解決するので、
+            # 未ロードのセッション(-NoProfile の素の 5.1。CI の runner など)では
+            # 初期化中に "Add-Member is not recognized" で落ちる
             $psd1 = Join-Path $PSScriptRoot '.modules\Pester\5.9.0\Pester.psd1'
             [IO.File]::WriteAllText((Join-Path $scratch 'bootstrap.ps1'),
-                "Import-Module '$psd1' -Force`r`n", (New-Object Text.UTF8Encoding $true))
+                "Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue`r`nImport-Module '$psd1' -Force`r`n",
+                (New-Object Text.UTF8Encoding $true))
             $broken = "Describe 'broken' {`r`n    It 'never runs' {`r`n        `$x = @{`r`n    }`r`n}`r`n"
             [IO.File]::WriteAllText((Join-Path $scratch 'Broken.Tests.ps1'), $broken,
                 (New-Object Text.UTF8Encoding $true))

@@ -212,7 +212,7 @@ AfterAll {
 
 # 'Static' は付けない。実レジストリにサンドボックス用のキーを 1 つ作り、
 # HKLM: PSDrive をプロセス単位で張り替えるため
-Describe '既存ファイルとの衝突' -Tag 'Collision' {
+Describe '既存ファイルとの衝突' -Tag 'Sandbox', 'Collision' {
     BeforeEach {
         # 破壊的操作の前に毎回サンドボックスを確認する。張り替えが外れていたら
         # このマシンの実フォント登録が黙って消える
@@ -274,7 +274,7 @@ Describe '既存ファイルとの衝突' -Tag 'Collision' {
     }
 }
 
-Describe '変更途中の失敗' -Tag 'Collision' {
+Describe '変更途中の失敗' -Tag 'Sandbox', 'Collision' {
     BeforeEach {
         if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
             throw 'HKLM: がサンドボックスを指していない。実レジストリを消さないため中止する'
@@ -355,7 +355,7 @@ Describe '変更途中の失敗' -Tag 'Collision' {
     }
 }
 
-Describe 'uninstaller のロック耐性とジャーナル退役' -Tag 'Collision' {
+Describe 'uninstaller のロック耐性とジャーナル退役' -Tag 'Sandbox', 'Collision' {
     BeforeEach {
         if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
             throw 'HKLM: がサンドボックスを指していない。実レジストリを消さないため中止する'

@@ -163,7 +163,7 @@ AfterAll {
 
 # 'Static' は付けない。実レジストリにサンドボックス用のキーを 1 つ作り、
 # HKLM: PSDrive をプロセス単位で張り替えるため
-Describe 'global インストール経路' -Tag 'Global' {
+Describe 'global インストール経路' -Tag 'Sandbox', 'Global' {
 
     BeforeEach {
         # 破壊的操作の前に毎回サンドボックスを確認する。張り替えが外れていたら

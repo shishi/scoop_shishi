@@ -1,0 +1,45 @@
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+name: Tests
+jobs:
+  tests:
+    name: Static and sandbox tests
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    # Manifest.Tests.ps1 は tests/tools/sync_scripts.py を走らせて
+    # 原本(scripts/*.ps1)と 16 manifest の同一性を確かめるので Python が要る
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    # Manifest.Tests.ps1 は `python3` を名指しで呼ぶ。runner で python3 が
+    # 引けないと、そのテストだけが「sync が冪等でない」ように見える形で落ちて
+    # 原因が分かりにくい。ここで先に落として理由を明示する
+    - name: Verify python3 is callable
+      shell: powershell
+      run: python3 --version
+
+    # shell は powershell(Windows PowerShell 5.1)。既定の pwsh 7 では駄目。
+    # このリポジトリは 5.1 で実行される前提で書かれており、日本語を含む .ps1 の
+    # UTF-8 BOM 必須という制約も 5.1 固有(BOM 無しを ANSI として読む)。
+    # pwsh 7 で走らせるとその制約の検証にならない
+    - name: Static tests
+      shell: powershell
+      run: .\tests\invoke.ps1 -Dir tests -Tag Static
+
+    # サンドボックスのスイート(Collision / GdiRefCount / GlobalInstall)。
+    # P/Invoke をスタブへ、$env:WINDIR と $env:ProgramData を一時ディレクトリへ、
+    # HKLM: PSDrive を HKCU 配下へ張り替えるので、runner を汚さず昇格も要らない。
+    # 検証用フォントは runner 同梱の segoeui.ttf / arial.ttf を土台に生成する
+    - name: Sandbox tests
+      shell: powershell
+      run: .\tests\invoke.ps1 -Dir tests -Tag Sandbox
+
+    # RegName / InstallSource / Win11Debloat は走らせない。
+    # RegName は 16 個のフォント manifest が install 済みであることを前提にし、
+    # InstallSource は実機の scoop root を走査し、Win11Debloat は scoop install する。
+    # いずれも scoop が入った実機でしか成立しないので、手元で `.\tests\run.ps1` を使う
