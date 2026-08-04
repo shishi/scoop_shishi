@@ -130,13 +130,41 @@ $isOurFile = {
     }
 }
 
-# global インストールは対象外。中途半端に対応するより明確に拒否する
-if ($global) { throw "$app は per-user インストール専用。-g を外して実行すること。" }
+# per-user インストールは対象外。Windows がログオン時にロードするフォントは
+# FontCache-FontSet-<SID>.dat が持つ集合で決まり、HKCU への登録も
+# AddFontResourceW もその集合を変えないので、再起動するとフォントが消える
+# (実測 2026-08-04: HKCU に 126 件登録済みでも OS が開くのは固定の 44 件だけ。
+#  そのキャッシュを退避して再構築させても増えなかった)。Microsoft の GDI
+# ドキュメントも AddFontResource を temporary installation と明記し、永続化には
+# %windir%\fonts への配置を求めている。永続化しない経路を残す意味がないので
+# global 専用とする
+#
+# per-user で入れた版から scoop update すると、scoop は旧 uninstaller を走らせた
+# 後にこの installer を $global = $false で呼ぶため、ここで必ず止まる。
+# その時点でフォントは既に片付いており、アプリだけが消えた状態になる。
+# 復帰の手順が分からないと詰むので、止める前に手順を出す
+if (-not $global) {
+    Write-Host ""
+    Write-Host " エラー " -Background DarkRed -Foreground White
+    Write-Host " $app は global インストール専用。" -Foreground DarkRed
+    Write-Host " per-user (-g なし) では Windows がフォントを永続化しないため、再起動で消える。" -Foreground DarkRed
+    Write-Host ""
+    Write-Host " 入れ直す手順(管理者権限のシェルで):" -Foreground Magenta
+    Write-Host "   scoop install -g $app" -Foreground Magenta
+    Write-Host ""
+    Write-Host " per-user で入れた版がまだ残っている場合は、先に片付けること:" -Foreground Magenta
+    Write-Host "   scoop uninstall $app" -Foreground Magenta
+    Write-Host ""
+    throw "$app は global インストール専用。-g を付けて管理者権限で実行すること。"
+}
 
-$fontDir   = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
-$regRoot   = 'HKCU'
+$fontDir   = "$env:WINDIR\Fonts"
+$regRoot   = 'HKLM'
 $regKey    = "${regRoot}:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
-$backupDir = Join-Path "$env:LOCALAPPDATA\scoop-font-backup" "$app-$version"
+# 退避先も全ユーザー共通の場所にする。global install は昇格して走るため、
+# 実行したユーザーの LOCALAPPDATA へ置くと、別のユーザーが uninstall した
+# ときに退避が見つからず復元できない
+$backupDir = Join-Path "$env:ProgramData\scoop-font-backup" "$app-$version"
 $statePath = Join-Path $dir 'scoop-font-state.json'
 $journalPath = Join-Path $backupDir 'scoop-font-state.json'   # app ディレクトリが消えても残る控え
 
@@ -210,18 +238,14 @@ New-Item $backupDir -ItemType Directory -Force | Out-Null   # 控えの置き場
 # --- 3. 変更。各段階の直前に Phase を進めて保存する ---
 try {
     New-Item $fontDir -ItemType Directory -Force | Out-Null
-    $acl = Get-Acl $fontDir
-    foreach ($sid in 'S-1-15-2-1', 'S-1-15-2-2') {
-        $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-            [System.Security.Principal.SecurityIdentifier]::new($sid),
-            'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')))
-    }
-    Set-Acl -AclObject $acl $fontDir
+    # AppContainer 用の ACL は足さない。%WINDIR%\Fonts は元から全ユーザー・
+    # 全 AppContainer が読める。per-user の LOCALAPPDATA\...\Fonts では
+    # S-1-15-2-1 / S-1-15-2-2 への許可を足す必要があったが、ここで同じことを
+    # すると OS のフォントディレクトリの ACL を書き換えることになる
 
-    # 一度も per-user フォントを入れたことが無いプロファイルでは、このキー自体が
-    # 存在しない。New-ItemProperty -Force は値の作成・上書きは Force するが、
-    # 親キーが無い場合の作成まではしない(実測: キー不在だと
-    # "Cannot find path ... because it does not exist" で失敗する)。ここで先に作る
+    # New-ItemProperty -Force は値の作成・上書きは Force するが、親キーが無い
+    # 場合の作成まではしない(実測: キー不在だと "Cannot find path ... because
+    # it does not exist" で失敗する)。ここで先に作る
     if (-not (Test-Path -LiteralPath $regKey)) { New-Item -Path $regKey -Force | Out-Null }
 
     # 上書きする配置先は、書き込む前に GDI の登録を外しておく。

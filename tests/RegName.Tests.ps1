@@ -3,7 +3,7 @@
     $fixture = Get-Content (Join-Path $PSScriptRoot 'fixtures\expected-regnames.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $script:Expected = $fixture.regnames
     $script:Families = $fixture.families
-    $script:FontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    $script:FontDir = "$env:WINDIR\Fonts"
 }
 
 Describe 'レジストリのキー名' {

@@ -1,17 +1,24 @@
 ﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
-    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
+    # フォント manifest は global 専用。per-user の root を見ると、global で
+    # 入っているアプリを「入っていない」と誤判定して復元せず終わる
+    $script:ScoopRoot = Get-ScoopGlobalRoot
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\biz-udgothic.json'
-    $script:FontDir  = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    # global 専用なので配置先は %WINDIR%\Fonts。このスイートは昇格が必要
+    $script:FontDir  = "$env:WINDIR\Fonts"
+    if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+              ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw 'このスイートは global install を検証するため昇格が必要。管理者権限で実行すること。'
+    }
     # バージョンをハードコードすると、Excavator が hourly でバージョンを上げた
     # 次の瞬間からここが黙って外れて検証にならなくなる(実測: このリポジトリの
     # .github/workflows/schedule.yml は Excavator を毎時走らせ、バージョン更新を
     # 直接 default branch へコミットする)。Update.Tests.ps1 と同じく manifest 自身
     # から読む
     $script:BizUdgothicVersion = (Get-Content $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
-    $script:Backup = Join-Path "$env:LOCALAPPDATA\scoop-font-backup" "biz-udgothic-$script:BizUdgothicVersion"
+    $script:Backup = Join-Path "$env:ProgramData\scoop-font-backup" "biz-udgothic-$script:BizUdgothicVersion"
     # このスイートに入る前の状態を覚えておく。Task 10 以降は 16 個とも入っているので、
     # 無条件に uninstall して終わると環境を壊す。
     # スナップショットは強制 uninstall より「前」に取る。後で取ると
@@ -23,18 +30,18 @@
     # scoop update が bucket ではなくそのファイルを見続けることになる
     $script:OrigSource  = Get-AppInstallSource    -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
     $script:OrigVersion = Get-AppInstalledVersion -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
-    scoop uninstall biz-udgothic 2>&1 | Out-Null
+    scoop uninstall -g biz-udgothic 2>&1 | Out-Null
     $script:Before = Get-FontEnvSnapshot   # 「入っていない」状態の基準
 
-    scoop install $script:Manifest 2>&1 | Out-Null
+    scoop install -g $script:Manifest 2>&1 | Out-Null
 }
 
 AfterAll {
-    scoop uninstall biz-udgothic 2>&1 | Out-Null
+    scoop uninstall -g biz-udgothic 2>&1 | Out-Null
     if ($script:WasInstalled) {
         Restore-AppInstall -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot `
             -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
-            -Fallback $script:Manifest
+            -Fallback $script:Manifest -Global
     }
     # 入れ直した結果が元どおりかまで確かめる。試みるだけでは、
     # 再インストールが冪等でなかったときに緑のまま環境がずれる
@@ -47,7 +54,7 @@ Describe 'biz-udgothic のライフサイクル' {
     }
 
     It '期待した 4 ファイルが Fonts フォルダにある' -ForEach @('BIZUDGothic-Bold.ttf', 'BIZUDGothic-Regular.ttf', 'BIZUDPGothic-Bold.ttf', 'BIZUDPGothic-Regular.ttf') {
-        Join-Path "$env:LOCALAPPDATA\Microsoft\Windows\Fonts" $_ | Should -Exist
+        Join-Path "$env:WINDIR\Fonts" $_ | Should -Exist
     }
 
     It 'レジストリに登録され、値が実在するパスを指す' {
@@ -60,18 +67,8 @@ Describe 'biz-udgothic のライフサイクル' {
         Get-FontRegValue -Name 'BIZUDGothic-Regular (TrueType)' | Should -BeNullOrEmpty
     }
 
-    It 'Fonts ディレクトリに AppContainer 用の ACL がある' -ForEach @('S-1-15-2-1', 'S-1-15-2-2') {
-        # -ForEach の値を先に取る。Where-Object の中では $_ が ACL エントリに変わる
-        $sid = $_
-        # ACE の IdentityReference は NTAccount（例: "APPLICATION PACKAGE AUTHORITY\ALL APPLICATION PACKAGES"）
-        # として返る。これを SecurityIdentifier へ逆変換しようとすると、環境によっては
-        # IdentityNotMappedException で落ちる（実測）。SID → アカウント名の順方向変換は
-        # 常に安全に通るので、そちらで比較する
-        $acctName = (New-Object Security.Principal.SecurityIdentifier($sid)).Translate([Security.Principal.NTAccount]).Value
-        $acl = Get-Acl "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
-        $found = @($acl.Access | Where-Object { $_.IdentityReference.Value -eq $acctName })
-        $found | Should -Not -BeNullOrEmpty
-    }
+    # AppContainer 用の ACL は検証しない。%WINDIR%\Fonts は元から全ユーザー・
+    # 全 AppContainer が読めるので、installer は ACL を触らない
 
     It '記録が app ディレクトリと退避先の両方にある' {
         $appDir = (scoop prefix biz-udgothic)
@@ -80,7 +77,7 @@ Describe 'biz-udgothic のライフサイクル' {
     }
 
     It 'uninstall 後にフォント環境が元通りになる' {
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
         { Assert-FontEnvRestored -Before $script:Before } | Should -Not -Throw
     }
 

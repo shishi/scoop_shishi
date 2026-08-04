@@ -1,5 +1,7 @@
-﻿$script:FontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
-$script:RegKey  = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+﻿# フォント manifest は global 専用。永続化されるのは %WINDIR%\Fonts + HKLM だけで、
+# per-user (LOCALAPPDATA + HKCU) は再起動でロードされなくなる
+$script:FontDir = "$env:WINDIR\Fonts"
+$script:RegKey  = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
 
 function Get-FontRegValue {
     param([Parameter(Mandatory)][string]$Name)
