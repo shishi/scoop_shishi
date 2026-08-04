@@ -8,11 +8,13 @@ jobs:
     name: Static and sandbox tests
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
+    # メジャーを固定する。v4 / v5 は Node.js 20 を対象にしていて
+    # 「forced to run on Node.js 24」の deprecation 警告が出る
+    - uses: actions/checkout@v7
 
     # Manifest.Tests.ps1 は tests/tools/sync_scripts.py を走らせて
     # 原本(scripts/*.ps1)と 16 manifest の同一性を確かめるので Python が要る
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.x'
 
