@@ -4,8 +4,8 @@
     # フォント manifest は global 専用なので、per-user 側だけ見ると global へ
     # 焼き付いたローカルパスを見逃す。両方を走査する。
     # global 側の解決は ScoopApp.psm1 に寄せる(config.json の global_path まで見る)
-    $userRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
-    $script:ScoopRoots = @($userRoot, (Get-ScoopGlobalRoot))
+    # どちらの解決も ScoopApp.psm1 に寄せる(config.json の root_path / global_path まで見る)
+    $script:ScoopRoots = @((Get-ScoopUserRoot), (Get-ScoopGlobalRoot))
     # 区切り文字はリテラルで書かない。ここは何段もの引用符を通って生成された
     # ことがあり、バックスラッシュが黙って食われて TrimEnd('') + '' になっていた
     # (見た目は通るし、前方一致としては動いてしまうので気づけない)

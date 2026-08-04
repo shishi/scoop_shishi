@@ -1,379 +1,339 @@
 ﻿BeforeAll {
-    Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
-    Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
-    # フォント manifest は global 専用。per-user の root を見ると、global で
-    # 入っているアプリを「入っていない」と誤判定して復元せず終わる
-    $script:ScoopRoot = Get-ScoopGlobalRoot
-    $script:Repo     = Split-Path $PSScriptRoot
-    $script:Manifest = Join-Path $script:Repo 'bucket\biz-udgothic.json'
-    $script:FontDir  = "$env:WINDIR\Fonts"
-    $script:Target   = Join-Path $script:FontDir 'BIZUDGothic-Regular.ttf'
-    $script:RegName  = 'BIZ UDGothic (TrueType)'
-    # バージョンをハードコードすると、Excavator が hourly でバージョンを上げた
-    # 次の瞬間からここが黙って外れて掃除・検証の対象を見失う(Update.Tests.ps1 と
-    # 同じく manifest 自身から読む)
-    $script:BizUdgothicVersion = (Get-Content $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
-    $script:Backup   = "$env:ProgramData\scoop-font-backup\biz-udgothic-$script:BizUdgothicVersion"
-
-    # $script:RegName は 4 ファイルのうち 1 つ分でしかない。「記録が無ければ uninstall は
-    # 何も消さない」テストは残り 3 つの登録もわざと残したまま次のケースへ進むので、
-    # Reset-Case はこの 4 つ全部を毎回消さないと、次のケース以降にレジストリの
-    # 残骸が漏れて Assert-FontEnvRestored がずっと失敗し続ける
-    $script:AllRegNames = @('BIZ UDGothic (TrueType)', 'BIZ UDGothic Bold (TrueType)',
-                            'BIZ UDPGothic (TrueType)', 'BIZ UDPGothic Bold (TrueType)')
-
-    # このスイートは $script:Target と $script:RegName を繰り返し消す。
-    # 元から手動で入っていた場合に失われるので、中身ごと退避してから始める。
+    # 配置先に既存ファイル・既存登録がある状況での installer / uninstaller の振る舞いを
+    # 検証する。
     #
-    # 順序が重要。app が入った状態で退避すると scoop が置いたファイルを掴んでしまい、
-    # その下に隠れている「本当の元ファイル」を取り逃がす。先に uninstall して
-    # 素の状態を露出させてから退避する
-    $script:WasInstalled = Test-AppInstalled -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
-    # 入れ直すときの出どころを uninstall の前に控える。控えずに
-    # $script:Manifest から入れ直すと install.json にリポジトリのパスが焼き付き、
-    # scoop update が bucket ではなくそのファイルを見続けることになる
-    $script:OrigSource  = Get-AppInstallSource    -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
-    $script:OrigVersion = Get-AppInstalledVersion -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
-    scoop uninstall -g biz-udgothic 2>&1 | Out-Null
+    # 実機の %WINDIR%\Fonts では成立しない。global install したフォントは OS が
+    # ログオン時にロードして常時参照するため、配置先のファイルを消す・置き換える
+    # 操作が「使用中」で失敗する(実測 2026-08-04: BIZUDPGothic-Regular.ttf が
+    # 常にロックされ 13 件が落ちた)。per-user 時代は %LOCALAPPDATA% だったので
+    # 使うアプリを閉じれば解放されたが、global では閉じても解放されない。
+    # そこで GdiRefCount / GlobalInstall と同じサンドボックス方式で走らせる。
+    #   1. GDI の P/Invoke をスタブへ(型名ごと差し替える)
+    #   2. $env:WINDIR と $env:ProgramData を一時ディレクトリへ向ける
+    #   3. HKLM: PSDrive をサンドボックスのサブキーへ張り替える
+    # 3 の張り替え先は HKCU 配下なので、実 HKLM へ書かず昇格も要らない。
+    #
+    # 検証用フォントは実在フォントの name テーブルを同じバイト長の別名へ置換して作る。
+    # bucket のどのフォントとも名前が衝突しないので、実機の登録と混ざらない。
+    # ファイル名を CollTest-A..D にしてあるので Get-ChildItem の列挙順が
+    # A→B→C→D で決まる。元の実装は「BIZUDPGothic-Regular.ttf が列挙順で最後」という
+    # 保証の無い前提に依存していたが、ここではその不確かさが無い。
 
-    # このスイートが触りうるファイルは $script:Target だけではない。
-    # 故障注入は BIZUDPGothic-Regular.ttf も消してディレクトリに置き換える。
-    # biz-udgothic が配る 4 ファイルすべてを退避対象にする
-    $script:Touched = @('BIZUDGothic-Bold.ttf', 'BIZUDGothic-Regular.ttf',
-                        'BIZUDPGothic-Bold.ttf', 'BIZUDPGothic-Regular.ttf')
+    $script:Repo = Split-Path $PSScriptRoot
 
-    $script:Vault = Join-Path $env:TEMP ("collision-vault-" + [Guid]::NewGuid().ToString('n'))
-    New-Item $script:Vault -ItemType Directory -Force | Out-Null
-    $script:VaultedFiles = @()
-    # 配置先と同名の「ディレクトリ」が最初から存在していた場合も想定する（普段は無いはずだが、
-    # このスイート自身が故障注入で作る種類の衝突なので、元からあったケースも同じ扱いで守る）
-    $script:VaultedDirs = @()
-    foreach ($n in $script:Touched) {
-        $p = Join-Path $script:FontDir $n
-        if (Test-Path $p -PathType Leaf) {
-            Copy-Item -LiteralPath $p -Destination (Join-Path $script:Vault $n) -Force
-            $script:VaultedFiles += $n
-        } elseif (Test-Path $p -PathType Container) {
-            Copy-Item -LiteralPath $p -Destination (Join-Path $script:Vault $n) -Recurse -Force
-            $script:VaultedDirs += $n
+    # --- 素材は張り替える「前」に確保する。$env:WINDIR を差し替えた後では拾えない ---
+    $script:SeedFont = $null
+    foreach ($c in @(
+        @{ File = 'BIZUDGothic-Regular.ttf'; Family = 'BIZ UDGothic' },
+        @{ File = 'segoeui.ttf';             Family = 'Segoe UI' },
+        @{ File = 'arial.ttf';               Family = 'Arial' }
+    )) {
+        $path = Join-Path "$env:WINDIR\Fonts" $c.File
+        if (Test-Path -LiteralPath $path) {
+            $script:SeedFont = $path
+            $script:SeedFamily = $c.Family
+            break
         }
     }
+    if (-not $script:SeedFont) { throw '素材にできるフォントが見つからない' }
 
-    # 退避対象のファイルを指しているレジストリ値、および Reset-Case が名前だけで
-    # 無条件に消す $script:AllRegNames の現在値をすべて控える。後者を漏らすと、
-    # 元から別のパスを指していた登録が消えたきり戻らない
-    $script:VaultedReg = @{}
-    $props = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue
-    if ($props) {
-        foreach ($p in $props.PSObject.Properties) {
-            if ($p.Name -like 'PS*') { continue }
-            $leaf = Split-Path $p.Value -Leaf
-            if (($leaf -in $script:Touched) -or ($p.Name -in $script:AllRegNames)) {
-                $script:VaultedReg[$p.Name] = $p.Value
+    # --- 1. 偽の GDI ---
+    if (-not ('ScoopStub.GdiV1' -as [type])) {
+        Add-Type -Namespace 'ScoopStub' -Name 'GdiV1' -MemberDefinition @'
+public static System.Collections.Generic.Dictionary<string,int> Counts =
+    new System.Collections.Generic.Dictionary<string,int>(System.StringComparer.OrdinalIgnoreCase);
+
+public static int AddFontResourceW(string path) {
+    if (!System.IO.File.Exists(path)) { return 0; }
+    if (!Counts.ContainsKey(path)) { Counts[path] = 0; }
+    Counts[path] = Counts[path] + 1;
+    return 1;
+}
+
+public static bool RemoveFontResourceW(string path) {
+    if (!System.IO.File.Exists(path)) { return false; }
+    if (!Counts.ContainsKey(path) || Counts[path] <= 0) { return false; }
+    Counts[path] = Counts[path] - 1;
+    return true;
+}
+
+public static System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint msg, System.IntPtr wParam,
+        System.IntPtr lParam, uint flags, uint timeout, out System.IntPtr result) {
+    result = System.IntPtr.Zero;
+    return System.IntPtr.Zero;
+}
+'@
+    }
+
+    $script:MakeFont = {
+        param([string]$Source, [string]$Dest, [string]$From, [string]$To)
+        if ($From.Length -ne $To.Length) { throw "置換前後の長さが違う: '$From' -> '$To'" }
+        $bytes = [IO.File]::ReadAllBytes($Source)
+        $fromBytes = [Text.Encoding]::BigEndianUnicode.GetBytes($From)
+        $toBytes = [Text.Encoding]::BigEndianUnicode.GetBytes($To)
+        $found = $false
+        for ($i = 0; $i -lt $bytes.Length - $fromBytes.Length; $i++) {
+            $hit = $true
+            for ($j = 0; $j -lt $fromBytes.Length; $j++) {
+                if ($bytes[$i + $j] -ne $fromBytes[$j]) { $hit = $false; break }
             }
+            if (-not $hit) { continue }
+            for ($j = 0; $j -lt $toBytes.Length; $j++) { $bytes[$i + $j] = $toBytes[$j] }
+            $found = $true
         }
+        if (-not $found) { throw "name テーブルに '$From' が無い: $Source" }
+        [IO.File]::WriteAllBytes($Dest, $bytes)
     }
 
-    # $script:Backup（scoop-font-backup\biz-udgothic-1.051）自体も、割り込まれた
-    # 別のインストール試行の唯一の復旧手段（journal・退避ファイル）を保持している
-    # かもしれない。Reset-Case は毎回これを空にするので、消える前に丸ごと退避する
-    $script:HadBackupDir = Test-Path $script:Backup
-    $script:BackupVault  = Join-Path $script:Vault '__backup-dir__'
-    if ($script:HadBackupDir) {
-        Copy-Item -LiteralPath $script:Backup -Destination $script:BackupVault -Recurse -Force
+    $script:TagFor = {
+        param([string]$Token)
+        $len = $script:SeedFamily.Length
+        if ($Token.Length -gt $len) { throw "識別子が素材のファミリ名より長い: $Token" }
+        $Token.PadRight($len, 'x')
     }
 
-    function Reset-Case {
-        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
-        # 故障注入がディレクトリを置いている場合があるので -Recurse で消す
-        foreach ($n in $script:Touched) {
-            $p = Join-Path $script:FontDir $n
-            if (Test-Path $p) { Remove-Item -LiteralPath $p -Recurse -Force }
-        }
-        foreach ($k in @($script:VaultedReg.Keys) + $script:AllRegNames) {
-            Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
-                -Name $k -Force -ErrorAction SilentlyContinue
-        }
-        if (Test-Path $script:Backup) { Remove-Item -LiteralPath $script:Backup -Recurse -Force }
+    # --- 2. $env:WINDIR / $env:ProgramData をサンドボックスへ ---
+    $script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) "collision-$([guid]::NewGuid())"
+    New-Item -ItemType Directory -Path $script:Sandbox -Force | Out-Null
+    $script:RealWinDir = $env:WINDIR
+    $env:WINDIR = Join-Path $script:Sandbox 'windir'
+    New-Item -ItemType Directory -Path "$env:WINDIR\Fonts" -Force | Out-Null
+    $script:RealProgramData = $env:ProgramData
+    $env:ProgramData = Join-Path $script:Sandbox 'programdata'
+    New-Item -ItemType Directory -Path $env:ProgramData -Force | Out-Null
+
+    # --- 3. HKLM: PSDrive を張り替える ---
+    $script:SandboxRegRoot = 'HKEY_CURRENT_USER\Software\ScoopFontCollisionTest'
+    New-Item -Path 'HKCU:\Software\ScoopFontCollisionTest' -Force | Out-Null
+    $script:RealHklmRoot = (Get-PSDrive HKLM).Root
+    Remove-PSDrive -Name HKLM -Force
+    New-PSDrive -Name HKLM -PSProvider Registry -Root $script:SandboxRegRoot -Scope Global | Out-Null
+    if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
+        throw 'HKLM: の張り替えに失敗した。実レジストリを汚さないため中止する'
     }
 
-    function New-DecoyFont([string]$Path) {
-        # 実在のフォントを土台に 1 バイトだけ変える。中身は別物だが name テーブルは読める。
-        #
-        # 特定の 1 ファイルを直書きしない。BIZUDGothic-Regular.ttf は OS 同梱ではなく
-        # 手で machine-wide へ入れられていただけで、それを片付けたらこのスイートが
-        # FileNotFoundException で 4 件落ちた(実測)。Windows が必ず持つものから選ぶ
-        $src = $null
-        foreach ($c in 'segoeui.ttf', 'arial.ttf', 'tahoma.ttf', 'BIZUDGothic-Regular.ttf') {
-            $p = Join-Path $env:WINDIR "Fonts\$c"
-            if (Test-Path -LiteralPath $p) { $src = $p; break }
-        }
-        if (-not $src) { throw '囮の土台にできるフォントが C:\Windows\Fonts に無い' }
-        $b = [IO.File]::ReadAllBytes($src)
+    # --- 対象スクリプト。manifest から取り出して原本と同じものを走らせる ---
+    $manifestPath = Join-Path $script:Repo 'bucket\bizter.json'
+    $m = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $script:InstallerSrc   = ($m.installer.script   -join "`n").Replace('ScoopFont.GdiV1', 'ScoopStub.GdiV1')
+    $script:UninstallerSrc = ($m.uninstaller.script -join "`n").Replace('ScoopFont.GdiV1', 'ScoopStub.GdiV1')
+    # pre_uninstall は GDI を触らないのでスタブ差し替えは要らない。
+    # exit 1 するので同一プロセスでは走らせられず、子プロセスで実行する
+    $script:PreUninstallSrc = ($m.pre_uninstall -join "`n")
+    if ($script:InstallerSrc -like '*ScoopFont.GdiV1*' -or $script:InstallerSrc -notlike '*ScoopStub.GdiV1*') {
+        throw '型名の差し替えに失敗した。実 GDI を触らないため中止する'
+    }
+
+    $script:App     = 'colltest'
+    $script:Version = '1.0.0'
+    $script:AppDir  = Join-Path $script:Sandbox "$script:App\$script:Version"
+    $script:FontDir = "$env:WINDIR\Fonts"
+    $script:Backup  = "$env:ProgramData\scoop-font-backup\$script:App-$script:Version"
+    $script:RegKey  = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+
+    # 4 ファイル。列挙順は A→B→C→D
+    $script:Files = @(
+        @{ File = 'CollTest-A.ttf'; Token = 'CA' },
+        @{ File = 'CollTest-B.ttf'; Token = 'CB' },
+        @{ File = 'CollTest-C.ttf'; Token = 'CC' },
+        @{ File = 'CollTest-D.ttf'; Token = 'CD' }
+    )
+    foreach ($f in $script:Files) { $f.RegName = (& $script:TagFor $f.Token) + ' (TrueType)' }
+    $script:Names   = @($script:Files | ForEach-Object { $_.File })
+    $script:Target  = Join-Path $script:FontDir 'CollTest-A.ttf'
+    $script:RegName = ($script:Files | Where-Object { $_.File -eq 'CollTest-A.ttf' }).RegName
+
+    $script:RunInstaller = {
+        $dir = $script:AppDir; $app = $script:App; $version = $script:Version; $global = $true
+        Invoke-Expression $script:InstallerSrc
+    }
+    $script:RunUninstaller = {
+        $dir = $script:AppDir; $app = $script:App; $version = $script:Version; $global = $true
+        Invoke-Expression $script:UninstallerSrc
+    }
+
+    # レジストリ値の読み出し。FontEnv.psm1 は実機の HKLM を前提にしているので使わない
+    # (このスイートでは HKLM: が張り替わっているため結果的に同じ場所を見るが、
+    #  依存関係を明示するために自前で持つ)
+    $script:GetReg = {
+        param([string]$Name)
+        $p = Get-ItemProperty -Path $script:RegKey -Name $Name -ErrorAction SilentlyContinue
+        if ($p) { return $p.($Name) }
+        return $null
+    }
+
+    # 囮: 実在フォントを土台に 1 バイト変える。中身は別物だが name テーブルは読める
+    $script:NewDecoy = {
+        param([string]$Path)
+        $b = [IO.File]::ReadAllBytes($script:SeedFont)
         $b[$b.Length - 1] = [byte](($b[$b.Length - 1] + 1) % 256)
         [IO.File]::WriteAllBytes($Path, $b)
         return (Get-FileHash -LiteralPath $Path).Hash
     }
 
-    $script:Before = Get-FontEnvSnapshot
+    $script:ResetCase = {
+        # サンドボックスなので実環境には一切触れない。app ディレクトリのフォントは
+        # 毎回作り直す(テストが配置先を壊すことはあっても src は壊さないが、
+        # ケース間で状態を持ち越さないことを明示する)
+        if (Test-Path -LiteralPath $script:AppDir) { Remove-Item -LiteralPath $script:AppDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $script:AppDir -Force | Out-Null
+        foreach ($f in $script:Files) {
+            & $script:MakeFont $script:SeedFont (Join-Path $script:AppDir $f.File) `
+                $script:SeedFamily (& $script:TagFor $f.Token)
+        }
+        [ScoopStub.GdiV1]::Counts.Clear()
+        if (Test-Path -LiteralPath $script:FontDir) { Remove-Item -LiteralPath $script:FontDir -Recurse -Force }
+        New-Item -ItemType Directory -Path $script:FontDir -Force | Out-Null
+        Remove-Item -LiteralPath "$env:ProgramData\scoop-font-backup" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:RegKey -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 AfterAll {
-    # 各手順を独立した try/catch で囲む。1 つが終了エラーを投げても残りの手順は
-    # 必ず走らせる。素直に並べると、途中の 1 行（例: scoop uninstall が投げる
-    # DirectoryNotFoundException）で以降がすべて飛び、退避した本物のフォントや
-    # レジストリを戻せないまま環境が汚れて残る事例が実際に起きた。
-    # ただし黙って Write-Host するだけだと失敗が握りつぶされて見た目は green の
-    # まま終わるので、失敗は $failures に集めて最後に throw し、Pester にも
-    # 失敗として伝える
-    $failures = New-Object Collections.ArrayList
-
-    # 退避（$script:Vault）は「本物の元ファイル・レジストリ・退避ディレクトリ」の
-    # 最後の控えなので、以下の復元・後始末がすべて成功したときだけ消す。途中で
-    # 1 つでも失敗したら Vault は残し、次回に手で救出できるようにする（P1 対応）。
-    # ここで宣言するのは、下の「配置先ディレクトリの後始末」も対象に含めるため。
-    # これが未削除のまま残っていると、続く Copy-Item がディレクトリの「中へ」書き込んで
-    # 見かけ上は成功し、元がファイルだったことを示す唯一の控え（Vault）を
-    # 後始末に成功したと誤認して消してしまう
-    $restoreOk = $true
-
-    try { Reset-Case } catch { [void]$failures.Add("Reset-Case: $_"); Write-Host "Reset-Case に失敗: $_" -Foreground Red }
-
-    # Reset-Case は $ErrorActionPreference='Stop' の下で複数手順を素直に並べただけの
-    # 関数で、内部で 1 行が終了エラーを投げると（例: scoop uninstall が途中で失敗する）
-    # 以降の自身の後始末（$script:Touched の削除など）が飛ぶ。ここは Reset-Case の
-    # 成否に関わらず独立して効く安全網として、配置先に残っている物（ファイルでも
-    # 故障注入のディレクトリでも）を丸ごと片付ける
-    foreach ($n in $script:Touched) {
-        try {
-            $p = Join-Path $script:FontDir $n
-            if (Test-Path $p) { Remove-Item -LiteralPath $p -Recurse -Force }
-        } catch {
-            $restoreOk = $false; [void]$failures.Add("配置先の後始末($n): $_")
-            Write-Host "配置先($n)の後始末に失敗: $_" -Foreground Red
-        }
+    # 張り替えたものを必ず戻す。戻さないとこのプロセスの後続テストが
+    # サンドボックスを見続ける
+    if ($script:RealHklmRoot) {
+        Remove-PSDrive -Name HKLM -Force -ErrorAction SilentlyContinue
+        New-PSDrive -Name HKLM -PSProvider Registry -Root $script:RealHklmRoot -Scope Global | Out-Null
     }
+    if ($script:RealWinDir) { $env:WINDIR = $script:RealWinDir }
+    if ($script:RealProgramData) { $env:ProgramData = $script:RealProgramData }
 
-    # 退避しておいた実体を戻す。1 件が失敗しても他のファイルの復元を止めない
-    # ように、foreach の外ではなく各要素ごとに try/catch を置く
-    foreach ($n in $script:VaultedFiles) {
-        try {
-            Copy-Item -LiteralPath (Join-Path $script:Vault $n) -Destination (Join-Path $script:FontDir $n) -Force
-        } catch {
-            $restoreOk = $false; [void]$failures.Add("退避ファイルの復元($n): $_")
-            Write-Host "退避ファイル($n)の復元に失敗: $_" -Foreground Red
-        }
-    }
-
-    foreach ($n in $script:VaultedDirs) {
-        try {
-            $dest = Join-Path $script:FontDir $n
-            if (Test-Path $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
-            Copy-Item -LiteralPath (Join-Path $script:Vault $n) -Destination $dest -Recurse -Force
-        } catch {
-            $restoreOk = $false; [void]$failures.Add("退避ディレクトリの復元($n): $_")
-            Write-Host "退避ディレクトリ($n)の復元に失敗: $_" -Foreground Red
-        }
-    }
-
-    foreach ($k in $script:VaultedReg.Keys) {
-        try {
-            New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
-                -Name $k -Value $script:VaultedReg[$k] -Force | Out-Null
-        } catch {
-            $restoreOk = $false; [void]$failures.Add("退避レジストリ値の復元($k): $_")
-            Write-Host "退避レジストリ値($k)の復元に失敗: $_" -Foreground Red
-        }
-    }
-
-    try {
-        # 割り込まれた別の試行の退避ディレクトリがあれば、消える前の状態へ戻す。
-        # これが無いと、このスイート自身は入っていなかった第三者の復旧データを消して終わる
-        if ($script:HadBackupDir) {
-            if (Test-Path $script:Backup) { Remove-Item -LiteralPath $script:Backup -Recurse -Force }
-            Copy-Item -LiteralPath $script:BackupVault -Destination $script:Backup -Recurse -Force
-        }
-    } catch { $restoreOk = $false; [void]$failures.Add("退避ディレクトリ(backupDir)の復元: $_"); Write-Host "退避ディレクトリ(backupDir)の復元に失敗: $_" -Foreground Red }
-
-    try {
-        # Vault は上の復元が 1 つでも失敗していたら消さない。本物の元ファイルが
-        # ここにしか残っていない可能性があるので、失敗を握りつぶして消してしまうと
-        # 復旧手段を自分で断つことになる
-        if ($restoreOk -and (Test-Path $script:Vault)) { Remove-Item -LiteralPath $script:Vault -Recurse -Force }
-        elseif (-not $restoreOk) { Write-Host "復元に失敗があったため Vault を残す: $script:Vault" -Foreground Yellow }
-    } catch { [void]$failures.Add("Vault の削除: $_"); Write-Host "Vault の削除に失敗: $_" -Foreground Red }
-
-    try {
-        # このスイートに入る前に入っていたなら入れ直す
-        if ($script:WasInstalled) {
-            Restore-AppInstall -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot `
-                -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
-                -Fallback $script:Manifest -Global
-        }
-    } catch { [void]$failures.Add("テスト前の状態への再インストール: $_"); Write-Host "テスト前の状態への再インストールに失敗: $_" -Foreground Red }
-
-    if (-not $script:WasInstalled) {
-        try { Assert-FontEnvRestored -Before $script:Before }
-        catch { [void]$failures.Add("環境の復元検証: $_"); Write-Host "環境が元に戻っていない: $_" -Foreground Red }
-    }
-
-    # 個々の手順は握りつぶさずに進めたが、1 つでも失敗していれば AfterAll 自体は
-    # 失敗として報告する。黙って green にすると後始末の失敗に誰も気づけない
-    if ($failures.Count -gt 0) {
-        throw ("後始末で失敗した手順がある:`n  " + ($failures -join "`n  "))
-    }
+    Remove-Item -LiteralPath "Registry::$script:SandboxRegRoot" -Recurse -Force -ErrorAction SilentlyContinue
+    if ($script:Sandbox) { Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
-Describe '既存ファイルとの衝突' {
-    BeforeEach { Reset-Case }
+# 'Static' は付けない。実レジストリにサンドボックス用のキーを 1 つ作り、
+# HKLM: PSDrive をプロセス単位で張り替えるため
+Describe '既存ファイルとの衝突' -Tag 'Collision' {
+    BeforeEach {
+        # 破壊的操作の前に毎回サンドボックスを確認する。張り替えが外れていたら
+        # このマシンの実フォント登録が黙って消える
+        if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
+            throw 'HKLM: がサンドボックスを指していない。実レジストリを消さないため中止する'
+        }
+        if ($env:WINDIR -notlike "$script:Sandbox*") {
+            throw "WINDIR がサンドボックス外を指している: $env:WINDIR"
+        }
+        & $script:ResetCase
+    }
 
     It '内容の違う同名ファイルがあると退避してから上書きし、uninstall で戻る' {
-        $decoyHash = New-DecoyFont $script:Target
-        scoop install -g $script:Manifest 2>&1 | Out-Null
+        $decoyHash = & $script:NewDecoy $script:Target
 
+        & $script:RunInstaller
         (Get-FileHash -LiteralPath $script:Target).Hash | Should -Not -Be $decoyHash
-        (Join-Path $script:Backup 'BIZUDGothic-Regular.ttf') | Should -Exist
+        (Join-Path $script:Backup 'CollTest-A.ttf') | Should -Exist
 
-        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
+        & $script:RunUninstaller
         (Get-FileHash -LiteralPath $script:Target).Hash | Should -Be $decoyHash
     }
 
-    It 'Windows 標準の名前で登録済みなら上書きし、uninstall で元の値へ戻る' {
-        New-DecoyFont $script:Target | Out-Null
-        # installer が書く値（$script:Target）と同じ値を仕込むと、レジストリ処理が
+    It '既存の登録があれば上書きし、uninstall で元の値へ戻る' {
+        & $script:NewDecoy $script:Target | Out-Null
+        # installer が書く値($script:Target)と同じ値を仕込むと、レジストリ処理が
         # 完全な no-op でも before/after/expected が全部同じになり、テストが
         # 何も検証できなくなる。installer が書く値とは違う番兵パスを仕込む
-        $sentinel = Join-Path $script:FontDir 'Sentinel-Not-BIZUDGothic.ttf'
-        New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
-            -Name $script:RegName -Value $sentinel -Force | Out-Null
+        $sentinel = Join-Path $script:FontDir 'Sentinel-Not-CollTest.ttf'
+        # New-ItemProperty -Force は値の作成・上書きは Force するが、親キーが無い
+        # 場合の作成まではしない(installer 側にも同じ実測コメントがある)。
+        # ResetCase が Fonts キーごと消しているので、ここで先に作る
+        if (-not (Test-Path -LiteralPath $script:RegKey)) { New-Item -Path $script:RegKey -Force | Out-Null }
+        New-ItemProperty -Path $script:RegKey -Name $script:RegName -Value $sentinel -Force | Out-Null
 
-        scoop install -g $script:Manifest 2>&1 | Out-Null
-        Get-FontRegValue -Name $script:RegName | Should -Be $script:Target
+        & $script:RunInstaller
+        (& $script:GetReg $script:RegName) | Should -Be $script:Target
 
-        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
-        Get-FontRegValue -Name $script:RegName | Should -Be $sentinel
+        & $script:RunUninstaller
+        (& $script:GetReg $script:RegName) | Should -Be $sentinel
     }
 
     It 'install 後に第三者が差し替えたファイルは uninstall で消さない' {
-        scoop install -g $script:Manifest 2>&1 | Out-Null
+        & $script:RunInstaller
+        $tamperedHash = & $script:NewDecoy $script:Target
 
-        # 配置先を第三者のファイルで差し替える検証なので、書き込めないと成立しない。
-        # フォントがアプリから見えるようになった結果、エディタや端末が実際に
-        # 描画へ使ってメモリマップし、書き込めないことがある(実測)。
-        # 環境の状態であってテストの不具合ではないので、緑と偽らず skip する
-        try {
-            $probe = [IO.File]::Open($script:Target, 'Open', 'ReadWrite', 'None')
-            $probe.Dispose()
-        } catch {
-            Set-ItResult -Skipped -Because ("$(Split-Path $script:Target -Leaf) が他のプロセスに使用中で差し替えられない。" +
-                '使っているアプリを閉じてから再実行すること')
-        }
-
-        $tamperedHash = New-DecoyFont $script:Target
-
-        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
+        & $script:RunUninstaller
         $script:Target | Should -Exist
         (Get-FileHash -LiteralPath $script:Target).Hash | Should -Be $tamperedHash
     }
 
     It '記録が無ければ uninstall は何も消さない' {
-        scoop install -g $script:Manifest 2>&1 | Out-Null
-        Remove-Item (Join-Path (scoop prefix biz-udgothic) 'scoop-font-state.json') -Force
+        & $script:RunInstaller
+        Remove-Item (Join-Path $script:AppDir 'scoop-font-state.json') -Force
         Remove-Item (Join-Path $script:Backup 'scoop-font-state.json') -Force
 
-        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
+        & $script:RunUninstaller
         $script:Target | Should -Exist
     }
 }
 
-Describe '変更途中の失敗' {
-    BeforeEach { Reset-Case }
-
-    It '配置先にディレクトリがあると下調べの検知で落ち、1 ファイルも変更されない（巻き戻しの経路は通らない）' {
-        # 配置先と同名のディレクトリを作っておくと、installer は下調べ段階
-        # （どのファイルも変更する前）でこれを検知して例外を投げる。この経路は
-        # 「1 ファイルも変更しないうちに終わる」ことを守るものであり、catch 内の
-        # 巻き戻し（退避からの復元・ハッシュ検証・レジストリの戻し）は通らない。
-        # 巻き戻し自体を検証するテストは下の 'Move-Item' の項を見よ
-        $blocker = Join-Path $script:FontDir 'BIZUDPGothic-Regular.ttf'
-        if (Test-Path $blocker) { Remove-Item -LiteralPath $blocker -Force }
-        New-Item $blocker -ItemType Directory -Force | Out-Null
-        try {
-            # installer が例外で失敗すると、scoop はその例外をそのまま呼び出し元へ伝播させる。
-            # 2>&1 | Out-Null はエラーストリームを黙らせるだけで終端例外は捕まえないため、
-            # ここで受け止めないと以降の検証が実行されないまま It が例外で落ちる。
-            # ただし何でも握りつぶすと、ダウンロード失敗など無関係の理由で install が
-            # 早期に失敗しただけでもこの後の「残っていない」検証が素通りしてしまう。
-            # 配置先の衝突が原因だったことまで確認する
-            $caught = $null
-            try { scoop install -g $script:Manifest 2>&1 | Out-Null } catch { $caught = $_ }
-            $caught | Should -Not -BeNullOrEmpty
-            $caught.Exception.Message | Should -Match '配置先がファイルではない'
-
-            # 先に処理された分が残っていないこと
-            (Test-Path $script:Target) | Should -BeFalse
-            Get-FontRegValue -Name $script:RegName | Should -BeNullOrEmpty
-        } finally {
-            if (Test-Path $blocker) { Remove-Item -LiteralPath $blocker -Recurse -Force }
+Describe '変更途中の失敗' -Tag 'Collision' {
+    BeforeEach {
+        if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
+            throw 'HKLM: がサンドボックスを指していない。実レジストリを消さないため中止する'
         }
+        & $script:ResetCase
     }
 
-    It '最後の配置先だけ書き込みを塞ぐと Move-Item で失敗し、先行する 3 ファイルが囮の内容へ巻き戻る' {
-        # 下調べのディレクトリ検知は「1 ファイルも変更しないうちに落ちる」経路であり、
-        # catch 内の巻き戻し（退避からの復元・ハッシュ検証・レジストリの戻し）を
-        # 1 行も通らない。この経路を実際に通すには、変更が始まったあとで失敗させる
-        # 必要がある。4 ファイルすべてに囮を置いたうえで、最後に処理される配置先
-        # （ファイル名の並びで最後になる BIZUDPGothic-Regular.ttf）だけ書き込みを防ぐ
-        # ハンドルで掴んでおく。先行する 3 ファイルは実際に置き換わり、最後で失敗し、
-        # 巻き戻しが走って 3 ファイルとも囮の内容へ戻るはず。
-        #
-        # 完全排他（'ReadWrite', 'None'）は実測では狙いどおりに動かない。installer は
-        # 下調べ段階で「配置先に元々あったファイルのハッシュ」を Get-FileHash で読む
-        # （退避の検証に使うため、変更前に計画へ保存する）。'None' で読み取りも塞ぐと、
-        # この下調べの時点で例外になり、1 ファイルも変更されないまま落ちる。これは
-        # 上のディレクトリ検知テストと同じ経路であり、巻き戻しを一切通らない。
-        # 読み取りは許可し書き込みだけ拒否する（'Read', 'Read'）と、下調べの読み取りと
-        # 退避コピー（どちらも読み取りのみ）は素通りし、最後の Move-Item（配置先の
-        # 削除・置換に書き込み権限が要る）だけが確実に失敗する。実測で確認済み。
-        #
-        # なお installer は Get-ChildItem の列挙順で処理するため、順序自体は
-        # ドキュメント化された保証ではない。ロックした BIZUDPGothic-Regular.ttf が
-        # 実際に何番目に処理されるかに関わらず、以下の検証は「ロックした 1 件を除く
-        # 残りが何件でも、退避されていればその中身は囮のハッシュと一致する」ことだけを
-        # 見る。これなら列挙順が変わっても壊れず、むしろ「ロックした 1 件より前に
-        # 処理された分は実際に置き換わってから正しく巻き戻った」ことを検証できる
-        $decoyHashes = @{}
-        foreach ($n in $script:Touched) {
-            $decoyHashes[$n] = New-DecoyFont (Join-Path $script:FontDir $n)
-        }
+    It '配置先にディレクトリがあると下調べの検知で落ち、1 ファイルも変更されない' {
+        # 配置先と同名のディレクトリを作っておくと、installer は下調べ段階
+        # (どのファイルも変更する前)でこれを検知して例外を投げる。この経路は
+        # 「1 ファイルも変更しないうちに終わる」ことを守るものであり、catch 内の
+        # 巻き戻し(退避からの復元・ハッシュ検証・レジストリの戻し)は通らない。
+        # 巻き戻し自体を検証するのは下の 'Move-Item' の項
+        # 下調べ段階で落ちることの検証なので、どのファイルを塞いでもよい
+        $blocker = Join-Path $script:FontDir $script:Names[-1]
+        New-Item $blocker -ItemType Directory -Force | Out-Null
 
-        $lockedPath = Join-Path $script:FontDir 'BIZUDPGothic-Regular.ttf'
+        # 何でも「例外が出た」で OK にすると、無関係の理由で落ちただけでも
+        # 下の「残っていない」検証が素通りする。原因まで確認する
+        $caught = $null
+        try { & $script:RunInstaller } catch { $caught = $_ }
+        $caught | Should -Not -BeNullOrEmpty
+        $caught.Exception.Message | Should -Match '配置先がファイルではない'
+
+        (Test-Path $script:Target) | Should -BeFalse
+        (& $script:GetReg $script:RegName) | Should -BeNullOrEmpty
+    }
+
+    It '最後の配置先だけ書き込みを塞ぐと Move-Item で失敗し、先行するファイルが囮の内容へ巻き戻る' {
+        # 下調べのディレクトリ検知は「1 ファイルも変更しないうちに落ちる」経路であり、
+        # catch 内の巻き戻しを 1 行も通らない。実際に通すには、変更が始まったあとで
+        # 失敗させる必要がある。4 ファイルすべてに囮を置き、列挙順で最後の
+        # CollTest-D.ttf だけ書き込みを防ぐハンドルで掴む。
+        #
+        # 完全排他('ReadWrite','None')では狙いどおりに動かない。installer は下調べ
+        # 段階で配置先のハッシュを Get-FileHash で読む(退避の検証に使うため変更前に
+        # 計画へ保存する)。'None' で読み取りも塞ぐとこの時点で落ち、1 ファイルも
+        # 変更されないまま終わる。読み取りは許可し書き込みだけ拒否する('Read','Read')と、
+        # 下調べの読み取りと退避コピーは素通りし、最後の Move-Item だけが失敗する
+        $decoyHashes = @{}
+        foreach ($n in $script:Names) { $decoyHashes[$n] = & $script:NewDecoy (Join-Path $script:FontDir $n) }
+
+        # installer は Get-ChildItem の列挙順で処理する。その順序はファイルシステム
+        # 依存で、名前順とは限らない。決め打ちすると、ロックした 1 件が最初に処理される
+        # 環境では 1 ファイルも退避されないまま落ちて(巻き戻しを通らない経路になり)
+        # $backedUp.Count の検証が失敗する。installer と同じ列挙をして最後の 1 件を取る
+        $enumerated = @(Get-ChildItem $script:AppDir -Recurse -Include '*.ttf', '*.otf' |
+            Where-Object { $_.BaseName -notmatch '35' } | ForEach-Object { $_.Name })
+        $enumerated.Count | Should -Be $script:Names.Count -Because '4 ファイルすべてが列挙されるはず'
+        $lockedName = $enumerated[-1]
+
+        $lockedPath = Join-Path $script:FontDir $lockedName
         $handle = [IO.File]::Open($lockedPath, 'Open', 'Read', 'Read')
         try {
             $caught = $null
-            try { scoop install -g $script:Manifest 2>&1 | Out-Null } catch { $caught = $_ }
+            try { & $script:RunInstaller } catch { $caught = $_ }
             $caught | Should -Not -BeNullOrEmpty
-            # 何でも「例外が出た」だけで OK にすると、無関係の理由（ダウンロード失敗等）で
-            # install が早期に落ちただけでも通ってしまい、下の「巻き戻った」検証が
-            # 何も保証しないまま素通りしかねない。ロックした配置先を Move-Item が
-            # 掴み損ねて失敗したことまで確認する（実測: FullyQualifiedErrorId は
-            # MoveFileInfoItemIOError,Microsoft.PowerShell.Commands.MoveItemCommand、
-            # TargetObject はロックしたパスそのもの）
             $caught.FullyQualifiedErrorId | Should -Match 'MoveItemCommand'
             "$($caught.TargetObject)" | Should -Be $lockedPath
         } finally {
             $handle.Close()
         }
 
-        # 巻き戻しが単に「何もしなかった」のではなく、実際に置き換えてから
-        # 戻したことの証拠。退避（backup）には置き換える直前の内容、つまり
-        # 囮の内容が控えられているはず。installer は Get-ChildItem の列挙順で
-        # 処理するため、ロックした 1 件が実際に何番目に処理されるかはドキュメント化
-        # された保証ではない。列挙順が変わっても壊れないよう、件数を決め打ちせず
-        # 「実際に退避が作られたもの」を動的に見て、1 件以上あることだけを必須にする
-        # （0 件なら、ロックした 1 件が最初に処理されて 1 ファイルも変更されずに
-        # 落ちたことになり、それはこのテストが証明したい経路ではない）
-        $others = @($script:Touched | Where-Object { $_ -ne 'BIZUDPGothic-Regular.ttf' })
+        # 巻き戻しが単に「何もしなかった」のではなく、実際に置き換えてから戻した
+        # ことの証拠。退避には置き換える直前の内容、つまり囮の内容が控えられている
+        $others = @($script:Names | Where-Object { $_ -ne $lockedName })
         $backedUp = @($others | Where-Object { Test-Path (Join-Path $script:Backup $_) })
         $backedUp.Count | Should -BeGreaterThan 0
         foreach ($n in $backedUp) {
@@ -381,214 +341,135 @@ Describe '変更途中の失敗' {
         }
 
         # 配置先自体も、置き換え→巻き戻しを経て囮の内容に戻っていること
-        foreach ($n in $script:Touched) {
+        foreach ($n in $script:Names) {
             (Get-FileHash -LiteralPath (Join-Path $script:FontDir $n)).Hash | Should -Be $decoyHashes[$n]
         }
-        Get-FontRegValue -Name $script:RegName | Should -BeNullOrEmpty
+        (& $script:GetReg $script:RegName) | Should -BeNullOrEmpty
     }
 }
 
-Describe 'uninstaller のロック耐性とジャーナル退役' {
-    BeforeEach { Reset-Case }
+Describe 'uninstaller のロック耐性とジャーナル退役' -Tag 'Collision' {
+    BeforeEach {
+        if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
+            throw 'HKLM: がサンドボックスを指していない。実レジストリを消さないため中止する'
+        }
+        & $script:ResetCase
+    }
 
-    It 'ロックされた1件があっても残り3件は処理され、ジャーナルは退役し、解錠後の再インストール/再アンインストールで完全に消える' {
-        # pre_uninstall は「配置先を自分自身へ Rename-Item してみる」ことでロックを検出し、
-        # 失敗すると exit 1 でアンインストール全体（scoop-uninstall.ps1 の該当呼び出しそのもの）
-        # を止める。これは実測で確認済み: Rename-Item と Remove-Item はどちらも
-        # delete 共有権限を要求するため、uninstaller.script の Remove-Item を失敗させる
-        # ロック（'Open','Read','Read'。書き込み・削除のみ拒否）は pre_uninstall の
-        # Rename-Item も同じ理由で失敗させ、uninstaller.script の本体（今回 try/catch を
-        # 追加した箇所）へ到達する前に scoop uninstall biz-udgothic 全体が失敗して終わる。
-        # pre_uninstall は今回の修正対象ではなく、この不具合・修正はどちらも
-        # uninstaller.script の中だけで完結する。そのため、ロックを再現している間は
-        # uninstaller.script だけを manifest から取り出して直接実行し、対象の
-        # コード（try/catch と退役の順序）をそのまま検証する。ロックが無い区間の
-        # install/uninstall は通常どおり scoop コマンドを使い、scoop 自身の帳簿
-        # （app ディレクトリ・current ジャンクション）の整合はそちらに任せる。
-        scoop install -g $script:Manifest 2>&1 | Out-Null
+    It 'ロックされた1件があっても残りは処理され、ジャーナルは退役し、解錠後の再実行で完全に消える' {
+        & $script:RunInstaller
 
-        # $dir は「今アンインストールしている版のディレクトリ」（例: ...\biz-udgothic\1.051）。
-        # scoop prefix が返す current ジャンクションの葉は 'current' であり、
-        # そのまま使うと uninstaller.script 内の Split-Path -Leaf でバージョン文字列を
-        # 取り違えるため、ジャンクションの実体を解決してから使う
-        $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
-
-        $lockedFile = 'BIZUDGothic-Regular.ttf'
+        $lockedFile = 'CollTest-A.ttf'
         $lockedPath = Join-Path $script:FontDir $lockedFile
         $handle = [IO.File]::Open($lockedPath, 'Open', 'Read', 'Read')
         try {
-            $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
-            $uninstallerText = $manifestObj.uninstaller.script -join "`r`n"
+            # 1 件のロックで残り全部と退役処理を巻き添えにしない、が検証の主題
+            { & $script:RunUninstaller } | Should -Not -Throw
 
-            # uninstaller.script はこの2変数だけを呼び出し元スコープから読む
-            $app = 'biz-udgothic'
-            $dir = $versionDir
-            { Invoke-Command ([scriptblock]::Create($uninstallerText)) } | Should -Not -Throw
-
-            # ロックされていない残り3件は処理された(ファイル削除・レジストリ削除)
-            $others = @($script:Touched | Where-Object { $_ -ne $lockedFile })
-            foreach ($n in $others) {
+            foreach ($n in @($script:Names | Where-Object { $_ -ne $lockedFile })) {
                 (Join-Path $script:FontDir $n) | Should -Not -Exist
             }
-            # ロックされた1件はファイルの削除に失敗して残る
             $lockedPath | Should -Exist
 
-            # ジャーナルは退役済み: アクティブな state.json は無く、retired.json がある
+            # ジャーナルは退役済み: アクティブな state.json は無く retired.json がある
             (Join-Path $script:Backup 'scoop-font-state.json') | Should -Not -Exist
             (Join-Path $script:Backup 'scoop-font-state.retired.json') | Should -Exist
 
             # 未解決のエントリがあるので退避ディレクトリ自体は生き残る
             $script:Backup | Should -Exist
-
-            # 注意: ここでもう一度 uninstaller.script を実行する検証は意図的に置かない。
-            # backupDir 側の記録は既に退役済みなので、ここで再実行すると app ディレクトリ側の
-            # 写し(フォールバック)まで退役させてしまう。その写しは、ロック解除後に続く
-            # 「通常の scoop uninstall」(下記)がロックされた1件の後始末を終えるために
-            # 読む唯一の記録なので、ここで消費すると後続の検証がロックされたファイルを
-            # 永久に片付けられなくなる。中断後の再実行の安全性は、全て片付いた後
-            # (記録がどこにも無い状態)で確認する形でこの Describe の末尾に別途置く
         } finally {
             $handle.Close()
         }
 
-        # ロックを解いたので、scoop 自身の帳簿(app ディレクトリ・current ジャンクション)を
-        # 整えるために通常の uninstall を一度通す。このとき backupDir 側のジャーナルは
-        # 既に退役済みなので、uninstaller.script は app ディレクトリ側の写しを読み、
-        # ロックのため残っていたファイルとレジストリ登録の後始末を完了させる
-        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
-
-        # ここが本題の検証: 修正前の実装では、中断で退役し損ねたジャーナルを次の
-        # install が「元から存在した(HadDest=true)」と誤読し、以後の uninstall は
-        # 復元に化けて何も削除しないまま成功を報告し続けた。今回の修正
-        # (try/catch で他のエントリを巻き添えにしない・退役を最初に無条件で行う)で
-        # その連鎖が断たれていることを、再インストール→再アンインストールで確認する
-        scoop install -g $script:Manifest 2>&1 | Out-Null
-        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
-
-        foreach ($n in $script:Touched) {
-            (Join-Path $script:FontDir $n) | Should -Not -Exist
-        }
-        foreach ($rn in $script:AllRegNames) {
-            Get-FontRegValue -Name $rn | Should -BeNullOrEmpty
-        }
-        $script:Backup | Should -Not -Exist
-
-        # 新規: 全て片付いた後(記録も退避ディレクトリも存在しない状態)にもう一度
-        # 同じスクリプトを実行しても、記録が見つからないので何もせず安全に退却する
-        # ことを確認する。中断後の再実行が「記録が無ければ何もしない」という
-        # 宣言どおりに振る舞うことの直接的な確認
-        { Invoke-Command ([scriptblock]::Create($uninstallerText)) } | Should -Not -Throw
-        foreach ($n in $script:Touched) {
-            (Join-Path $script:FontDir $n) | Should -Not -Exist
-        }
-        $script:Backup | Should -Not -Exist
+        # 解錠後の再実行で残りが片付く。backupDir 側の記録は既に退役済みなので、
+        # uninstaller は app ディレクトリ側の写しを読む
+        & $script:RunUninstaller
+        $lockedPath | Should -Not -Exist
+        (& $script:GetReg $script:RegName) | Should -BeNullOrEmpty
     }
 
-    It '退役の Move-Item 自体が失敗すると、ループへ入る前に例外を投げ、ファイルもレジストリも一切変更しない（退役をループの後ろへ戻す回帰を検出する）' {
-        # このスイートの上の It は「失敗後にジャーナルが退役済みになっている」という
-        # 終了状態だけを見ている。だが per-entry の try/catch（既存の修正）は失敗が
-        # あってもループを最後まで走らせることを保証しているため、退役をループの
-        # 前に置いても後ろに置いても、その終了状態は区別できない。つまり上の It は
-        # 「try/catch がある」ことしか証明しておらず、退役の順序そのものは検出できない。
-        #
-        # 順序を直接検出するには、退役の Move-Item 自体を失敗させて「例外が投げられ、
-        # かつ 1 件も変更されていない」ことを確認すればよい。退役が先頭にあれば、
-        # 何も変更する前に例外で落ちるのでこの検証は通る。退役が末尾へ戻されていれば、
-        # ループは既に全ファイル・全レジストリを変更し終えてから退役に失敗するので、
-        # 「何も変更されていない」という検証が確実に落ちる
-        scoop install -g $script:Manifest 2>&1 | Out-Null
+    It '退役の Move-Item が失敗するとループへ入る前に落ち、ファイルもレジストリも変わらない' {
+        # 退役(state.json を retired.json へ改名)はフォント処理ループへ入る「前」に
+        # 無条件で行う設計。ここが後ろへ移ると、中断時に「変更済み × 有効な記録」が
+        # 残り、後日同じ版を入れ直したときに「中断した試行の続き」と誤認されて
+        # 所有権の追跡が壊れる(uninstall が成功を報告しながら何も消さなくなる)。
+        # 退役自体を失敗させて、1 ファイルも変更されないことを確かめる
+        & $script:RunInstaller
 
-        $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
-        $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
-        $uninstallerText = $manifestObj.uninstaller.script -join "`r`n"
+        $statePath = Join-Path $script:Backup 'scoop-font-state.json'
+        $statePath | Should -Exist -Because '退役の対象が無いと検証にならない'
 
-        # backupDir 側のジャーナルが正として使われる。その退役先
-        # (scoop-font-state.retired.json) をあらかじめ「ディレクトリ」として
-        # 用意しておくだけでは、Move-Item -Force は「ディレクトリの中へ移動」を
-        # 試みて成功してしまう（実測で確認済み）。中に移動元と同じ名前
-        # (scoop-font-state.json) の「ディレクトリ」も置いておくと、-Force は
-        # ファイルの上書きは許すがディレクトリをファイルで置き換えることはできない
-        # ため、これで確実に Move-Item が失敗する
-        $retiredBlock = Join-Path $script:Backup 'scoop-font-state.retired.json'
-        New-Item $retiredBlock -ItemType Directory -Force | Out-Null
-        New-Item (Join-Path $retiredBlock 'scoop-font-state.json') -ItemType Directory -Force | Out-Null
-
-        $beforeHashes = @{}
-        foreach ($n in $script:Touched) {
-            $beforeHashes[$n] = (Get-FileHash -LiteralPath (Join-Path $script:FontDir $n)).Hash
-        }
-        $beforeReg = @{}
-        foreach ($rn in $script:AllRegNames) {
-            $beforeReg[$rn] = Get-FontRegValue -Name $rn
+        $before = @{}
+        foreach ($f in $script:Files) {
+            $before[$f.File] = (Get-FileHash -LiteralPath (Join-Path $script:FontDir $f.File)).Hash
         }
 
-        # uninstaller.script はこの2変数だけを呼び出し元スコープから読む
-        $app = 'biz-udgothic'
-        $dir = $versionDir
+        # 削除・改名を拒否するハンドルで掴む。Move-Item は delete 共有権限を要求する
+        $handle = [IO.File]::Open($statePath, 'Open', 'Read', 'Read')
         try {
-            { Invoke-Command ([scriptblock]::Create($uninstallerText)) } | Should -Throw
-
-            foreach ($n in $script:Touched) {
-                (Get-FileHash -LiteralPath (Join-Path $script:FontDir $n)).Hash | Should -Be $beforeHashes[$n]
-            }
-            foreach ($rn in $script:AllRegNames) {
-                Get-FontRegValue -Name $rn | Should -Be $beforeReg[$rn]
-            }
-
-            # ジャーナル本体もまだ退役されていないこと（Move-Item が完全に
-            # 失敗し、何も動かしていないことの直接的な証拠）
-            (Join-Path $script:Backup 'scoop-font-state.json') | Should -Exist
+            { & $script:RunUninstaller } | Should -Throw
         } finally {
-            # 自分で仕込んだ障害物を片付け、以降（次の BeforeEach / AfterAll）の
-            # 本物の scoop uninstall が正常に退役できる状態へ戻す
-            Remove-Item -LiteralPath $retiredBlock -Recurse -Force -ErrorAction SilentlyContinue
+            $handle.Close()
         }
+
+        # 1 ファイルも消えていない・中身も変わっていない
+        foreach ($f in $script:Files) {
+            $dest = Join-Path $script:FontDir $f.File
+            $dest | Should -Exist
+            (Get-FileHash -LiteralPath $dest).Hash | Should -Be $before[$f.File]
+            (& $script:GetReg $f.RegName) | Should -Be $dest
+        }
+        # 記録も退役していない(改名が失敗したので元の名前のまま)
+        $statePath | Should -Exist
+        (Join-Path $script:Backup 'scoop-font-state.retired.json') | Should -Not -Exist
     }
-}
 
-Describe 'pre_uninstall フックのロック検出メッセージ' {
-    BeforeEach { Reset-Case }
+    It 'pre_uninstall はロックされたフォントのファイル名を出して exit 1 する' {
+        # pre_uninstall は配置先を自分自身へ Rename-Item してロックを検出し、
+        # 失敗すると exit 1 で uninstall 全体を止める。catch の中では $_ が
+        # ErrorRecord に変わってパイプラインの FileInfo ではなくなるため、
+        # メッセージに使う名前は try へ入る前に控えておく必要がある
+        # (控え忘れるとファイル名が空のエラーになる)。その回帰を見る。
+        # exit 1 するので子プロセスで走らせる。$env:WINDIR はサンドボックスを
+        # 指したまま子へ継承される
+        & $script:RunInstaller
 
-    It 'ロックされたフォントのファイル名を含むエラーを出して exit 1 する' {
-        # catch 内では $_ がパイプラインの FileInfo ではなく ErrorRecord になるため、
-        # $name をtry へ入る前に控えておかないとメッセージからファイル名が消える
-        # (今回の修正対象そのもの)。この振る舞いを直接検証する。
-        #
-        # pre_uninstall は失敗すると exit 1 する共有スクリプトで、同一プロセスで
-        # そのまま実行するとテストランナーごと終了してしまう。uninstaller.script の
-        # 検証(上の Describe)と同じく manifest から該当ブロックを取り出して使うが、
-        # こちらは子プロセス(powershell.exe -File)で走らせ、終了コードと
-        # 標準出力だけを受け取る
-        scoop install -g $script:Manifest 2>&1 | Out-Null
-        $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
+        $probe = Join-Path $script:Sandbox 'pre-uninstall-probe.ps1'
+        # pre_uninstall は $dir と $app を呼び出し元スコープから読む
+        $body = "`$dir = '$script:AppDir'`n`$app = '$script:App'`n" + $script:PreUninstallSrc
+        # 日本語を含むので BOM 付きで書く(PowerShell 5.1 は BOM 無し UTF-8 を
+        # ANSI として読み、パースエラーで黙って死ぬ)。Set-Content -Encoding UTF8 は
+        # 5.1 では BOM 付きで書く
+        Set-Content -LiteralPath $probe -Value $body -Encoding UTF8
 
-        $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
-        $preUninstallText = $manifestObj.pre_uninstall -join "`r`n"
+        # 前提: ロックが無ければ素通りして exit 0。これを確かめておかないと、
+        # 下の exit 1 が「ロックのおかげ」なのか「常に 1 を返すだけ」なのか区別できない。
+        # pre_uninstall は配置先を自分自身へ改名するだけなので副作用は無い
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $probe 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 0 -Because 'ロックが無ければ pre_uninstall は素通りする'
 
-        $lockedFile = 'BIZUDGothic-Regular.ttf'
-        $lockedPath = Join-Path $script:FontDir $lockedFile
-        # 書き込み・削除のみを拒否し読み取りは許す。pre_uninstall は Rename-Item で
-        # 自分自身へ改名を試みるだけなので、これで確実に失敗させられる
-        # (Collision.Tests.ps1 の他のテストで確認済みの手法)
+        $lockedName = $script:Files[0].File
+        $lockedPath = Join-Path $script:FontDir $lockedName
+        # 読み取りは許すが delete 共有を拒否する。Rename-Item は delete 権限を
+        # 要求するのでこれで失敗する(実測: ロック無しでは成功し、この共有指定では
+        # IOException になる)
         $handle = [IO.File]::Open($lockedPath, 'Open', 'Read', 'Read')
-        $scriptPath = Join-Path $env:TEMP ("pre-uninstall-probe-" + [Guid]::NewGuid().ToString('n') + '.ps1')
         try {
-            # pre_uninstall は $app / $dir を呼び出し元スコープから読む共有スクリプト。
-            # 子プロセスで同じ形を再現するため、先頭でこの 2 変数を設定してから
-            # 本体をそのままつなげる
-            $full = "`$app = 'biz-udgothic'`r`n`$dir = '$versionDir'`r`n$preUninstallText"
-            # pre_uninstall は日本語を含むため BOM 付き UTF-8 で書く
-            # (PowerShell 5.1 が BOM 無し UTF-8 を cp932 と誤解釈するため)
-            [IO.File]::WriteAllText($scriptPath, $full, (New-Object Text.UTF8Encoding $true))
-
-            $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath 2>&1 | Out-String
-            $code = $LASTEXITCODE
-
-            $code | Should -Be 1
-            $out | Should -Match ([regex]::Escape($lockedFile))
+            $out = (& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $probe 2>&1 | Out-String)
+            $LASTEXITCODE | Should -Be 1 -Because 'ロックを検出したら uninstall 全体を止める'
+            $out | Should -Match ([regex]::Escape($lockedName)) -Because 'どのファイルが使用中かを出す'
         } finally {
             $handle.Close()
-            Remove-Item -LiteralPath $scriptPath -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    It '記録がどこにも無い状態で再実行しても何も壊さない' {
+        # 全部片付いた後の再実行が安全であること。記録が無いので退却するだけ
+        & $script:RunInstaller
+        & $script:RunUninstaller
+        & $script:RunUninstaller   # 2 回目: 有効な記録は無い
+
+        foreach ($n in $script:Names) { (Join-Path $script:FontDir $n) | Should -Not -Exist }
+        (& $script:GetReg $script:RegName) | Should -BeNullOrEmpty
     }
 }

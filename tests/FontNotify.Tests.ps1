@@ -47,7 +47,12 @@ AfterAll {
     Assert-FontEnvRestored -Before $script:TrueBefore
 }
 
-Describe 'install した直後にアプリからフォントが見えること' {
+# 'RealScoop' タグを付けて既定の実行から外してある(run.ps1 が除外する)。
+# 実 scoop で global install / uninstall するので昇格が必要
+# (非昇格だと "You need admin rights to uninstall global apps" で失敗する)。
+# 走らせるのは明示の選択にする:
+#   .\tests\run.ps1 -IncludeRealScoop
+Describe 'install した直後にアプリからフォントが見えること' -Tag 'RealScoop', 'FontNotify' {
     # レジストリ登録とファイル配置だけでは、あとから起動したプロセスからも
     # DirectWrite にフォントが見えない。実測では plemoljp が HKCU に 48 件
     # 登録済み・ファイルも実在という状態でファミリごと見えず、どのアプリからも

@@ -3,9 +3,14 @@
     Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
     # scoop は SCOOP 環境変数でインストール先を変えられる。既定の
     # %USERPROFILE%\scoop 決め打ちだと、それ以外の場所に入れている環境で壊れる
-    # フォント manifest は global 専用。per-user の root を見ると、global で
-    # 入っているアプリを「入っていない」と誤判定して復元せず終わる
-    $script:ScoopRoot = Get-ScoopGlobalRoot
+    # root は 2 つ要る。混ぜてはいけない。
+    #   ScoopRoot     : フォント app の所在。global 専用なので global 側。
+    #                   per-user を見ると「入っていない」と誤判定して復元せず終わる
+    #   ScoopUserRoot : scoop 本体(bin\checkhashes.ps1)と buckets の置き場。
+    #                   scoop 自身は per-user インストールで、global 側には存在しない
+    #                   (実測: global root を見て CommandNotFoundException で落ちた)
+    $script:ScoopRoot     = Get-ScoopGlobalRoot
+    $script:ScoopUserRoot = Get-ScoopUserRoot
     $script:Repo    = Split-Path $PSScriptRoot
     $script:FontDir = "$env:WINDIR\Fonts"
     $script:New     = Join-Path $script:Repo 'bucket\hackgen.json'
@@ -68,7 +73,7 @@
     $m.extract_dir = 'HackGen_v2.9.1'
     $m.hash        = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
     $m | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $script:TmpManifest -Encoding UTF8
-    & "$script:ScoopRoot\apps\scoop\current\bin\checkhashes.ps1" `
+    & "$script:ScoopUserRoot\apps\scoop\current\bin\checkhashes.ps1" `
         -App 'hackgen' -Dir (Split-Path $script:TmpManifest) -Update 2>&1 | Out-Null
 
     Push-Location $script:TmpBucket
@@ -104,7 +109,15 @@ AfterAll {
     Assert-FontEnvRestored -Before $script:TrueBefore
 }
 
-Describe '旧版から新版への更新' {
+# 'RealScoop' タグを付けて既定の実行から外してある(run.ps1 が除外する)。
+# scoop update そのもの(旧版の uninstaller → 新版の installer が同一プロセスで
+# 走る順序)を検証するので実 scoop が必要で、サンドボックスへは移せない。
+# global 専用になったことで %WINDIR%\Fonts のフォントは OS がロードされており、
+# uninstall が「使用中」で失敗して環境に残骸が残ることがある。
+# 走らせるのは明示の選択にする:
+#   .\tests\run.ps1 -IncludeRealScoop
+# 昇格が必要
+Describe '旧版から新版への更新' -Tag 'RealScoop', 'Update' {
     It '旧版が bucket 経由で入る' {
         scoop install -g "$script:BucketName/hackgen" 2>&1 | Out-Null
         Test-HackgenListed '2\.9\.1' | Should -BeTrue
@@ -123,7 +136,7 @@ Describe '旧版から新版への更新' {
         # 超えた副作用になる(実測: Updating Scoop... / Updating Buckets... が
         # 全 bucket に対して走る)。scoop がこの一時 bucket を clone した先だけを
         # 直接 git pull し、影響範囲をこのテストに閉じる
-        git -C (Join-Path $script:ScoopRoot "buckets\$script:BucketName") pull --quiet 2>&1 | Out-Null
+        git -C (Join-Path $script:ScoopUserRoot "buckets\$script:BucketName") pull --quiet 2>&1 | Out-Null
         scoop update hackgen 2>&1 | Out-Null  # ここで旧版の uninstaller → 新版の installer が走る
         Test-HackgenListed ([regex]::Escape($script:NewVersion)) | Should -BeTrue
     }

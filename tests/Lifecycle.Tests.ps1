@@ -44,11 +44,32 @@ AfterAll {
             -Fallback $script:Manifest -Global
     }
     # 入れ直した結果が元どおりかまで確かめる。試みるだけでは、
-    # 再インストールが冪等でなかったときに緑のまま環境がずれる
+    # 再インストールが冪等でなかったときに緑のまま環境がずれる。
+    #
+    # 配置先が使用中で消せずに残ると、ここは「増えたファイル」を検出して失敗する。
+    # それは隠さない。緑と偽って残骸を放置すると、次の install がその残骸を
+    # 「元からあったファイル」と誤認して所有権の追跡が壊れるため、失敗として
+    # 見えている方が安全。ロックが起きうること自体は 'RealScoop' タグで
+    # 既定の実行から外すことで扱う(下の Describe のコメントを参照)
     Assert-FontEnvRestored -Before $script:TrueBefore
 }
 
-Describe 'biz-udgothic のライフサイクル' {
+# 実 scoop 経由の統合テスト。installer / uninstaller 自体の詳細な振る舞いは
+# サンドボックスで走る GlobalInstall / Collision が見るので、ここは
+# 「scoop から呼んで通ること」に絞る。
+#
+# 'RealScoop' タグを付けて既定の実行から外してある(run.ps1 が除外する)。
+# global 専用になったことで、install したフォントは %WINDIR%\Fonts に置かれて
+# OS がログオン時にロードする。すると uninstall で「使用中」により削除できず、
+# 後始末が失敗して環境に残骸が残る(実測 2026-08-04)。per-user 時代は
+# %LOCALAPPDATA% だったので使うアプリを閉じれば解放されたが、global では
+# 閉じても解放されない。失敗を skip で隠すと残骸を放置したまま緑になり、
+# 次の install がその残骸を「元からあったファイル」と誤認する。
+# 隠さずに失敗させ、代わりに走らせるかどうかを明示の選択にする:
+#   .\tests\run.ps1 -IncludeRealScoop
+# 走らせた後にフォントが残ってしまったら、再起動してから uninstall し直すこと。
+# 昇格が必要
+Describe 'biz-udgothic のライフサイクル' -Tag 'RealScoop', 'Lifecycle' {
     It 'install が成功する' {
         (scoop list biz-udgothic 6>$null | Out-String) | Should -Match 'biz-udgothic'
     }
@@ -82,6 +103,9 @@ Describe 'biz-udgothic のライフサイクル' {
     }
 
     It 'uninstall 後に退避ディレクトリが残っていない' {
+        # 未解決のエントリが 1 件でもあると、uninstaller は退避を残す(設計どおり。
+        # 手で復旧できる控えを消さないため)。配置先が使用中で消せなければここは失敗する。
+        # それは実際に残骸が残っている状態なので隠さない(Describe のコメントを参照)
         $script:Backup | Should -Not -Exist
     }
 }
