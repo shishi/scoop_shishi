@@ -196,7 +196,7 @@ AfterAll {
 # 'Static' は付けない。実レジストリにサンドボックス用のキーを 1 つ作り、
 # HKLM: PSDrive をプロセス単位で張り替えるため、-StaticOnly の対象外にする。
 # 'GdiRef' タグはこのスイートだけを走らせたいときのため
-Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
+Describe 'GDI 参照カウントの収支' -Tag 'Sandbox', 'GdiRef' {
 
     BeforeEach {
         # 破壊的操作の前に毎回サンドボックスを確認する。BeforeAll で 1 回だけ

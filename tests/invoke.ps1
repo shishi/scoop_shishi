@@ -6,8 +6,8 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $Dir 'bootstrap.ps1')
 # InstallSource は「他のスイートが実機を汚したまま終わっていないか」を見るので、
 # 必ず最後に回す。Pester にディレクトリを渡すと discovery はファイル名順になり、
-# 'I' で始まるこのスイートは Lifecycle / Update / Win11Debloat より先に終わって
-# しまう。それらが汚しても緑のまま通るので、順序を明示して渡す
+# 'I' で始まるこのスイートは Win11Debloat より先に終わってしまう。
+# それが汚しても緑のまま通るので、順序を明示して渡す
 $files = @(Get-ChildItem -LiteralPath $Dir -Filter '*.Tests.ps1' | Sort-Object Name)
 $last  = @($files | Where-Object { $_.Name -eq 'InstallSource.Tests.ps1' })
 $paths = @(@($files | Where-Object { $_.Name -ne 'InstallSource.Tests.ps1' }) + $last |

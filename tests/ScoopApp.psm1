@@ -19,22 +19,59 @@ function Get-ScoopGlobalRoot {
     # config.json の global_path で移した環境で誤判定し、実インストールを
     # 取り上げたまま AfterAll が復元を諦める
     if ($env:SCOOP_GLOBAL) { return $env:SCOOP_GLOBAL }
+    $fromConfig = Get-ScoopConfigValue -Name 'global_path'
+    if ($fromConfig) { return $fromConfig }
+    Join-Path $env:ProgramData 'scoop'
+}
 
+function Get-ScoopUserRoot {
+    # scoop 本体(bin\checkhashes.ps1 など)と buckets の置き場。scoop 自身は
+    # per-user インストールで global 側には存在しないので、フォント app の所在
+    # (Get-ScoopGlobalRoot)とは別に解決する。
+    #
+    # 解決は scoop 自身に聞く。SCOOP 環境変数・~\.config\scoop\config.json の
+    # root_path・portable 構成の <root>\config.json・物理インストール位置からの
+    # フォールバックと分岐が多く、こちらで再実装すると scoop 本体(core.ps1)の
+    # 解決順とずれ続ける。`scoop prefix scoop` は <root>\apps\scoop\current を
+    # 返すので、3 階層上が root
+    try {
+        $prefix = (scoop prefix scoop 6>$null 2>$null | Out-String).Trim()
+        if ($prefix) {
+            $root = Split-Path (Split-Path (Split-Path $prefix))
+            # apps があることまで確かめる。Split-Path の段数がずれていれば弾かれる
+            if ($root -and (Test-Path -LiteralPath (Join-Path $root 'apps'))) { return $root }
+        }
+    } catch {
+        # scoop を呼べない環境(PATH に無いなど)では下のフォールバックへ落ちる
+    }
+    if ($env:SCOOP) { return $env:SCOOP }
+    "$env:USERPROFILE\scoop"
+}
+
+function Get-ScoopConfigValue {
+    # scoop の設定ファイルから 1 項目読む。読めなければ $null。
+    # config が壊れていても実機スイートを止めない(呼び出し側が既定値へ落とす)。
+    # 置き場は 2 通りある: 通常は ~\.config\scoop\config.json(XDG_CONFIG_HOME 尊重)、
+    # portable 構成では <root>\config.json
+    param([Parameter(Mandatory)][string]$Name)
     $configHome = if ($env:XDG_CONFIG_HOME) { $env:XDG_CONFIG_HOME } else { "$env:USERPROFILE\.config" }
-    $configFile = Join-Path $configHome 'scoop\config.json'
-    if (Test-Path -LiteralPath $configFile) {
-        # config が壊れていても実機スイートを止めない。既定値へ落とす
+    $candidates = @(
+        (Join-Path $configHome 'scoop\config.json'),
+        (Join-Path (Get-ScoopUserRoot) 'config.json')
+    )
+    foreach ($configFile in $candidates) {
+        if (-not (Test-Path -LiteralPath $configFile)) { continue }
         try {
             $cfg = Get-Content -LiteralPath $configFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($cfg.global_path) {
+            if ($cfg.$Name) {
                 # %VAR% 形式で入っていることがある。展開に失敗しても元の文字列を返す
-                return [Environment]::ExpandEnvironmentVariables($cfg.global_path)
+                return [Environment]::ExpandEnvironmentVariables($cfg.$Name)
             }
         } catch {
-            Write-Warning "scoop の config.json を読めなかった。global_path は既定値を使う: $_"
+            Write-Warning "scoop の config を読めなかった($configFile)。$Name は既定値を使う: $_"
         }
     }
-    Join-Path $env:ProgramData 'scoop'
+    return $null
 }
 
 function Get-AppCurrentDir {
@@ -122,5 +159,7 @@ function Restore-AppInstall {
     }
 }
 
-Export-ModuleMember -Function Get-ScoopGlobalRoot, Get-AppCurrentDir, Test-AppInstalled,
+# Get-ScoopConfigValue は Get-ScoopGlobalRoot / Get-ScoopUserRoot の内部専用なので出さない
+Export-ModuleMember -Function Get-ScoopGlobalRoot, Get-ScoopUserRoot,
+                              Get-AppCurrentDir, Test-AppInstalled,
                               Get-AppInstallSource, Get-AppInstalledVersion, Restore-AppInstall

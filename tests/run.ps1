@@ -1,28 +1,50 @@
 ﻿<#
+.SYNOPSIS
+    このリポジトリのテストスイートを実行する。
 .PARAMETER StaticOnly
-    Bootstrap / Manifest / Uniqueness / FontName と Win11Debloat の静的検査のみを
-    実行する。これらはレジストリや %WINDIR%\Fonts、実インストール済みの
-    scoop app に触れないマシン非依存のスイートで、'Static' タグを付けてある。
-    Lifecycle / Collision / Update / RegName / FontNotify / GdiRefCount /
-    GlobalInstall と Win11Debloat の実機スイートはこのスイッチでは実行しない。
-    これらは実機を書き換える:
-      - フォント manifest は global 専用になったため、scoop の install / uninstall は
-        -g を付けて走る。**このためフォント系の実機スイートは昇格が必要**
-        (Lifecycle は昇格していなければ BeforeAll で止まる)
-      - scoop で実際に install / uninstall し、HKLM のフォント登録を消して書き戻し、
-        %WINDIR%\Fonts を書き換え、検証用の一時 bucket を作る
-      - RegName は 16 個のフォント manifest がすべて install 済みであることを前提にする
-      - 常用フォント(HackGen・PlemolJP など)を描画中のアプリが開いているとファイルが
-        ロックされ、Collision / Lifecycle が落ちる。テストの不具合ではないので、
-        対象のフォントを使っているアプリを閉じてから実行すること
-      - Win11Debloat は persist の中身を意図的に壊す。実環境の保存設定と
-        レジストリバックアップは ~\scoop\persist\win11debloat ごと一時退避してから
-        走り、AfterAll で戻す(こちらは per-user のままなので昇格は不要)
-    GdiRefCount と GlobalInstall は例外で、実環境を汚さないので昇格も不要:
-    P/Invoke をスタブへ、$env:WINDIR と $env:ProgramData を一時ディレクトリへ、
-    HKLM: PSDrive を HKCU\Software\ScoopFont*Test へ張り替える(張り替え先を HKCU に
-    することで、global 経路の検証でありながら実 HKLM へ書かずに済ませている)。
-    これだけを走らせたいときは -Tag GdiRef / -Tag Global を invoke.ps1 へ渡す。
+    'Static' タグの付いた静的検査だけを実行する
+    (Bootstrap / Manifest / Uniqueness / FontName と Win11Debloat の静的検査)。
+    レジストリや %WINDIR%\Fonts、実インストール済みの scoop app に触れない
+    マシン非依存のスイート。
+.NOTES
+    スイートは実機への影響で 3 つに分かれる。既定ではすべて実行され、
+    **昇格は要らない**。
+
+    (a) サンドボックス — Collision / GdiRefCount / GlobalInstall
+        実環境を一切汚さない。P/Invoke をカウンタ付きスタブへ、$env:WINDIR と
+        $env:ProgramData を一時ディレクトリへ、HKLM: PSDrive を
+        HKCU\Software\ScoopFont*Test へ張り替える。張り替え先を HKCU にすることで、
+        global 経路(HKLM)の検証でありながら実 HKLM へ書かずに済ませている。
+        張り替えが外れていたら各 BeforeEach が停止するので、実レジストリを消す
+        事故は起きない。installer / uninstaller / pre_uninstall の振る舞いは
+        すべてここで検証する。
+        個別に走らせるなら invoke.ps1 へ -Tag Collision / GdiRef / Global。
+
+    (b) 実機を読むだけ — RegName / InstallSource
+        RegName は 16 個のフォント manifest がすべて install 済みであることを
+        前提に、レジストリとファイルを読んで検証する。InstallSource は
+        per-user と global の両方の scoop root を走査して、リポジトリ内の
+        ローカル manifest から入ったままの app が無いことを確かめる。
+        どちらも書き換えはしない。
+
+    (c) 実機を書き換える — Win11Debloat
+        persist の中身を意図的に壊すが、実環境の保存設定とレジストリバックアップは
+        ~\scoop\persist\win11debloat ごと一時退避してから走り、AfterAll で戻す。
+        per-user なので昇格は不要。
+
+    実 scoop で global install / uninstall していたスイート
+    (Lifecycle / Update / FontNotify)は 2026-08-04 に廃止した。
+    global 専用にした結果、%WINDIR%\Fonts のフォントは OS がログオン時にロードして
+    常時参照するため、uninstall が「使用中」で失敗して環境に残骸を残す。
+    per-user 時代は %LOCALAPPDATA% だったので使うアプリを閉じれば解放されたが、
+    global では閉じても解放されない。つまり uninstall 側の検証が構造的に成立せず、
+    走らせれば必ず赤くなる。常に赤いテストは本当の回帰を隠すので残さない。
+    失われた検証は (a) のサンドボックスへ移した:
+      - install の配置・登録・記録の生成、登録名が nameID 4 由来であること → GlobalInstall
+      - 既存ファイルとの衝突・巻き戻し・ジャーナル退役の順序・
+        pre_uninstall のロック診断・$version が新版に化けても $dir から版を復元すること
+        → Collision
+      - GDI 参照カウントの収支 → GdiRefCount
 #>
 param([switch]$StaticOnly)
 $ErrorActionPreference = 'Stop'

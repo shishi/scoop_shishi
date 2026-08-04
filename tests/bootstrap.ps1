@@ -1,4 +1,13 @@
 ﻿$ErrorActionPreference = 'Stop'
+
+# Pester より先に読む。Pester 5.9.0 は Add-Member を
+# `Get-Command -Module Microsoft.PowerShell.Utility` で解決するため、このモジュールが
+# 未ロードのセッションでは初期化中に "Add-Member is not recognized" で落ちる。
+# 手元では自動読み込みが効いていて再現しないが、-NoProfile の素の
+# Windows PowerShell 5.1(CI の runner など)では効かない条件がある。
+# 既に読み込まれていれば実質 no-op なので、無条件に読んで差を消す
+Import-Module Microsoft.PowerShell.Utility -ErrorAction SilentlyContinue
+
 $version = '5.9.0'
 $sha256  = '5A0FD80B361600BF4BBD4C307C1FD01B17F11668BAB19E657ADD41B00AD22AB9'
 $root    = Join-Path $PSScriptRoot ".modules\Pester\$version"
