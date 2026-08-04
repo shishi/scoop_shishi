@@ -194,5 +194,30 @@ Describe 'global インストール経路' -Tag 'Global' {
         $v = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
             -Name $regName -ErrorAction SilentlyContinue
         $v | Should -Not -BeNullOrEmpty -Because 'global install は HKLM に登録する'
+        $v.($regName) | Should -Be $dest -Because '登録の値は配置先の実パスを指す'
+    }
+
+    It 'レジストリのキー名がファイル名由来ではない' {
+        $appDir = & $script:NewCase 'globalcase2' 'Zg2'
+        & $script:RunInstaller $appDir 'globalcase2' '1.0.0' $true
+
+        # 登録名は OpenType の name テーブルの nameID 4(Full font name)由来。
+        # ファイル名から組み立てる実装に退行すると、Windows 標準のインストーラーと
+        # 規則が違ってしまい、手動導入ぶんの登録を置き換えられなくなる
+        $key = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+        Get-ItemProperty -Path $key -Name 'GlobalTest-Regular (TrueType)' -ErrorAction SilentlyContinue |
+            Should -BeNullOrEmpty -Because 'ファイル名由来の名前では登録しない'
+        Get-ItemProperty -Path $key -Name ((& $script:TagFor 'Zg2') + ' (TrueType)') -ErrorAction SilentlyContinue |
+            Should -Not -BeNullOrEmpty -Because 'nameID 4 由来の名前で登録する'
+    }
+
+    It '記録が app ディレクトリと退避先の両方にある' {
+        # app ディレクトリが消えても退避側に控えが残り、退避が消えても app 側から
+        # 追える。片方だけだと中断時に復旧の手がかりを失う
+        $appDir = & $script:NewCase 'globalcase3' 'Zg3'
+        & $script:RunInstaller $appDir 'globalcase3' '1.0.0' $true
+
+        Join-Path $appDir 'scoop-font-state.json' | Should -Exist
+        Join-Path "$env:ProgramData\scoop-font-backup" 'globalcase3-1.0.0\scoop-font-state.json' | Should -Exist
     }
 }

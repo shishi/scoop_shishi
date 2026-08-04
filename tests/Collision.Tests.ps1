@@ -147,8 +147,15 @@ public static System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint msg, Sys
         $dir = $script:AppDir; $app = $script:App; $version = $script:Version; $global = $true
         Invoke-Expression $script:InstallerSrc
     }
+    # $VersionOverride は scoop update の状況を再現するためにある。scoop update は
+    # scoop-update.ps1 の中で $version を新版へ再代入した後、その同じスコープのまま
+    # 旧版の uninstaller を呼ぶので、旧版の uninstaller から見える $version は
+    # 新版のものになっている(実測)。uninstaller はこれを信用せず $dir から版を
+    # 復元しなければならない
     $script:RunUninstaller = {
-        $dir = $script:AppDir; $app = $script:App; $version = $script:Version; $global = $true
+        param([string]$VersionOverride)
+        $dir = $script:AppDir; $app = $script:App; $global = $true
+        $version = if ($VersionOverride) { $VersionOverride } else { $script:Version }
         Invoke-Expression $script:UninstallerSrc
     }
 
@@ -460,6 +467,34 @@ Describe 'uninstaller のロック耐性とジャーナル退役' -Tag 'Collisio
             $out | Should -Match ([regex]::Escape($lockedName)) -Because 'どのファイルが使用中かを出す'
         } finally {
             $handle.Close()
+        }
+    }
+
+    It '$version が新版に化けていても $dir から版を復元して退避を片付ける' {
+        # scoop update の回帰テスト。scoop update は scoop-update.ps1 の中で
+        # $version を新版へ再代入した後、その同じスコープのまま旧版の
+        # pre_uninstall / uninstaller フックを呼ぶ。Invoke-HookScript は
+        # パラメータ渡しをせず呼び出し元スコープの変数をそのまま読むため、
+        # 旧版の uninstaller から見える $version は新版のものになっている(実測)。
+        # これに気づかず $backupDir を組み立てると、scoop update のたびに
+        # 旧版の退避ディレクトリが掃除されずオーファンとして残り続ける実害があった。
+        #
+        # 実 scoop での検証(旧 Update.Tests.ps1)は、global のフォントが OS に
+        # ロードされていて uninstall が「使用中」で失敗するため成立しなくなった。
+        # 回帰の本体は「$version を信用せず $dir から版を復元する」ことなので、
+        # $version だけを新版に差し替えて uninstaller を呼べば等価に検証できる
+        & $script:RunInstaller
+        $script:Backup | Should -Exist -Because '退避が無いと片付け対象が無い'
+
+        & $script:RunUninstaller -VersionOverride '9.9.9'
+
+        # 実際の版(1.0.0)の退避が片付いていること。$version を信用していると
+        # <app>-9.9.9 を探して見つからず、<app>-1.0.0 が残る
+        $script:Backup | Should -Not -Exist -Because '$dir から版を復元すれば正しい退避を掃除できる'
+        Join-Path "$env:ProgramData\scoop-font-backup" "$script:App-9.9.9" | Should -Not -Exist
+        foreach ($f in $script:Files) {
+            (Join-Path $script:FontDir $f.File) | Should -Not -Exist
+            (& $script:GetReg $f.RegName) | Should -BeNullOrEmpty
         }
     }
 

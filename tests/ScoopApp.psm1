@@ -159,6 +159,7 @@ function Restore-AppInstall {
     }
 }
 
-Export-ModuleMember -Function Get-ScoopGlobalRoot, Get-ScoopUserRoot, Get-ScoopConfigValue,
+# Get-ScoopConfigValue は Get-ScoopGlobalRoot / Get-ScoopUserRoot の内部専用なので出さない
+Export-ModuleMember -Function Get-ScoopGlobalRoot, Get-ScoopUserRoot,
                               Get-AppCurrentDir, Test-AppInstalled,
                               Get-AppInstallSource, Get-AppInstalledVersion, Restore-AppInstall
