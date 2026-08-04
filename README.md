@@ -8,7 +8,24 @@ scoop bucket add shishi https://github.com/shishi/scoop_shishi
 
 ## フォント
 
-日本語フォント 16 種。**per-user インストール専用**で、`-g`（global）を付けると止まる。
+日本語フォント 16 種。**global インストール専用**なので、管理者権限のシェルで `-g` を付ける。
+
+```powershell
+scoop install -g bizter
+```
+
+per-user（`-g` なし）は受け付けない。Windows がログオン時にロードするフォントは
+`FontCache-FontSet-<SID>.dat` が持つ集合で決まり、`HKCU` への登録も `AddFontResourceW` も
+その集合を変えないため、**再起動するとフォントが消える**（実測: `HKCU` に 126 件登録済みでも
+OS が開くのは固定の 44 件だけ。キャッシュを退避して再構築させても増えなかった）。
+Microsoft の [GDI ドキュメント](https://learn.microsoft.com/en-us/windows/win32/gdi/font-installation-and-deletion)も
+`AddFontResource` を temporary installation と明記し、永続化には `%windir%\fonts` への配置を求めている。
+
+per-user で入れた版から移行する場合は、先に片付けてから入れ直す。
+
+```powershell
+scoop uninstall bizter
+```
 
 | manifest | フォント |
 |---|---|

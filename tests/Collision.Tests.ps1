@@ -1,17 +1,19 @@
 ﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
-    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
+    # フォント manifest は global 専用。per-user の root を見ると、global で
+    # 入っているアプリを「入っていない」と誤判定して復元せず終わる
+    $script:ScoopRoot = Get-ScoopGlobalRoot
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\biz-udgothic.json'
-    $script:FontDir  = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    $script:FontDir  = "$env:WINDIR\Fonts"
     $script:Target   = Join-Path $script:FontDir 'BIZUDGothic-Regular.ttf'
     $script:RegName  = 'BIZ UDGothic (TrueType)'
     # バージョンをハードコードすると、Excavator が hourly でバージョンを上げた
     # 次の瞬間からここが黙って外れて掃除・検証の対象を見失う(Update.Tests.ps1 と
     # 同じく manifest 自身から読む)
     $script:BizUdgothicVersion = (Get-Content $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json).version
-    $script:Backup   = "$env:LOCALAPPDATA\scoop-font-backup\biz-udgothic-$script:BizUdgothicVersion"
+    $script:Backup   = "$env:ProgramData\scoop-font-backup\biz-udgothic-$script:BizUdgothicVersion"
 
     # $script:RegName は 4 ファイルのうち 1 つ分でしかない。「記録が無ければ uninstall は
     # 何も消さない」テストは残り 3 つの登録もわざと残したまま次のケースへ進むので、
@@ -32,7 +34,7 @@
     # scoop update が bucket ではなくそのファイルを見続けることになる
     $script:OrigSource  = Get-AppInstallSource    -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
     $script:OrigVersion = Get-AppInstalledVersion -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot
-    scoop uninstall biz-udgothic 2>&1 | Out-Null
+    scoop uninstall -g biz-udgothic 2>&1 | Out-Null
 
     # このスイートが触りうるファイルは $script:Target だけではない。
     # 故障注入は BIZUDPGothic-Regular.ttf も消してディレクトリに置き換える。
@@ -61,7 +63,7 @@
     # 無条件に消す $script:AllRegNames の現在値をすべて控える。後者を漏らすと、
     # 元から別のパスを指していた登録が消えたきり戻らない
     $script:VaultedReg = @{}
-    $props = Get-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue
+    $props = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' -ErrorAction SilentlyContinue
     if ($props) {
         foreach ($p in $props.PSObject.Properties) {
             if ($p.Name -like 'PS*') { continue }
@@ -82,14 +84,14 @@
     }
 
     function Reset-Case {
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
         # 故障注入がディレクトリを置いている場合があるので -Recurse で消す
         foreach ($n in $script:Touched) {
             $p = Join-Path $script:FontDir $n
             if (Test-Path $p) { Remove-Item -LiteralPath $p -Recurse -Force }
         }
         foreach ($k in @($script:VaultedReg.Keys) + $script:AllRegNames) {
-            Remove-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
+            Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
                 -Name $k -Force -ErrorAction SilentlyContinue
         }
         if (Test-Path $script:Backup) { Remove-Item -LiteralPath $script:Backup -Recurse -Force }
@@ -176,7 +178,7 @@ AfterAll {
 
     foreach ($k in $script:VaultedReg.Keys) {
         try {
-            New-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
+            New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
                 -Name $k -Value $script:VaultedReg[$k] -Force | Out-Null
         } catch {
             $restoreOk = $false; [void]$failures.Add("退避レジストリ値の復元($k): $_")
@@ -206,7 +208,7 @@ AfterAll {
         if ($script:WasInstalled) {
             Restore-AppInstall -App 'biz-udgothic' -ScoopRoot $script:ScoopRoot `
                 -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
-                -Fallback $script:Manifest
+                -Fallback $script:Manifest -Global
         }
     } catch { [void]$failures.Add("テスト前の状態への再インストール: $_"); Write-Host "テスト前の状態への再インストールに失敗: $_" -Foreground Red }
 
@@ -227,12 +229,12 @@ Describe '既存ファイルとの衝突' {
 
     It '内容の違う同名ファイルがあると退避してから上書きし、uninstall で戻る' {
         $decoyHash = New-DecoyFont $script:Target
-        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
 
         (Get-FileHash -LiteralPath $script:Target).Hash | Should -Not -Be $decoyHash
         (Join-Path $script:Backup 'BIZUDGothic-Regular.ttf') | Should -Exist
 
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
         (Get-FileHash -LiteralPath $script:Target).Hash | Should -Be $decoyHash
     }
 
@@ -242,18 +244,18 @@ Describe '既存ファイルとの衝突' {
         # 完全な no-op でも before/after/expected が全部同じになり、テストが
         # 何も検証できなくなる。installer が書く値とは違う番兵パスを仕込む
         $sentinel = Join-Path $script:FontDir 'Sentinel-Not-BIZUDGothic.ttf'
-        New-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
+        New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
             -Name $script:RegName -Value $sentinel -Force | Out-Null
 
-        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
         Get-FontRegValue -Name $script:RegName | Should -Be $script:Target
 
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
         Get-FontRegValue -Name $script:RegName | Should -Be $sentinel
     }
 
     It 'install 後に第三者が差し替えたファイルは uninstall で消さない' {
-        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
 
         # 配置先を第三者のファイルで差し替える検証なので、書き込めないと成立しない。
         # フォントがアプリから見えるようになった結果、エディタや端末が実際に
@@ -269,17 +271,17 @@ Describe '既存ファイルとの衝突' {
 
         $tamperedHash = New-DecoyFont $script:Target
 
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
         $script:Target | Should -Exist
         (Get-FileHash -LiteralPath $script:Target).Hash | Should -Be $tamperedHash
     }
 
     It '記録が無ければ uninstall は何も消さない' {
-        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
         Remove-Item (Join-Path (scoop prefix biz-udgothic) 'scoop-font-state.json') -Force
         Remove-Item (Join-Path $script:Backup 'scoop-font-state.json') -Force
 
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
         $script:Target | Should -Exist
     }
 }
@@ -304,7 +306,7 @@ Describe '変更途中の失敗' {
             # 早期に失敗しただけでもこの後の「残っていない」検証が素通りしてしまう。
             # 配置先の衝突が原因だったことまで確認する
             $caught = $null
-            try { scoop install $script:Manifest 2>&1 | Out-Null } catch { $caught = $_ }
+            try { scoop install -g $script:Manifest 2>&1 | Out-Null } catch { $caught = $_ }
             $caught | Should -Not -BeNullOrEmpty
             $caught.Exception.Message | Should -Match '配置先がファイルではない'
 
@@ -349,7 +351,7 @@ Describe '変更途中の失敗' {
         $handle = [IO.File]::Open($lockedPath, 'Open', 'Read', 'Read')
         try {
             $caught = $null
-            try { scoop install $script:Manifest 2>&1 | Out-Null } catch { $caught = $_ }
+            try { scoop install -g $script:Manifest 2>&1 | Out-Null } catch { $caught = $_ }
             $caught | Should -Not -BeNullOrEmpty
             # 何でも「例外が出た」だけで OK にすると、無関係の理由（ダウンロード失敗等）で
             # install が早期に落ちただけでも通ってしまい、下の「巻き戻った」検証が
@@ -403,7 +405,7 @@ Describe 'uninstaller のロック耐性とジャーナル退役' {
         # コード（try/catch と退役の順序）をそのまま検証する。ロックが無い区間の
         # install/uninstall は通常どおり scoop コマンドを使い、scoop 自身の帳簿
         # （app ディレクトリ・current ジャンクション）の整合はそちらに任せる。
-        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
 
         # $dir は「今アンインストールしている版のディレクトリ」（例: ...\biz-udgothic\1.051）。
         # scoop prefix が返す current ジャンクションの葉は 'current' であり、
@@ -453,15 +455,15 @@ Describe 'uninstaller のロック耐性とジャーナル退役' {
         # 整えるために通常の uninstall を一度通す。このとき backupDir 側のジャーナルは
         # 既に退役済みなので、uninstaller.script は app ディレクトリ側の写しを読み、
         # ロックのため残っていたファイルとレジストリ登録の後始末を完了させる
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
 
         # ここが本題の検証: 修正前の実装では、中断で退役し損ねたジャーナルを次の
         # install が「元から存在した(HadDest=true)」と誤読し、以後の uninstall は
         # 復元に化けて何も削除しないまま成功を報告し続けた。今回の修正
         # (try/catch で他のエントリを巻き添えにしない・退役を最初に無条件で行う)で
         # その連鎖が断たれていることを、再インストール→再アンインストールで確認する
-        scoop install $script:Manifest 2>&1 | Out-Null
-        scoop uninstall biz-udgothic 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
+        scoop uninstall -g biz-udgothic 2>&1 | Out-Null
 
         foreach ($n in $script:Touched) {
             (Join-Path $script:FontDir $n) | Should -Not -Exist
@@ -494,7 +496,7 @@ Describe 'uninstaller のロック耐性とジャーナル退役' {
         # 何も変更する前に例外で落ちるのでこの検証は通る。退役が末尾へ戻されていれば、
         # ループは既に全ファイル・全レジストリを変更し終えてから退役に失敗するので、
         # 「何も変更されていない」という検証が確実に落ちる
-        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
 
         $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
         $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -557,7 +559,7 @@ Describe 'pre_uninstall フックのロック検出メッセージ' {
         # 検証(上の Describe)と同じく manifest から該当ブロックを取り出して使うが、
         # こちらは子プロセス(powershell.exe -File)で走らせ、終了コードと
         # 標準出力だけを受け取る
-        scoop install $script:Manifest 2>&1 | Out-Null
+        scoop install -g $script:Manifest 2>&1 | Out-Null
         $versionDir = (Get-Item (scoop prefix biz-udgothic)).Target
 
         $manifestObj = Get-Content -LiteralPath $script:Manifest -Raw -Encoding UTF8 | ConvertFrom-Json

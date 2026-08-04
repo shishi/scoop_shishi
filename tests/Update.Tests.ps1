@@ -3,9 +3,11 @@
     Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
     # scoop は SCOOP 環境変数でインストール先を変えられる。既定の
     # %USERPROFILE%\scoop 決め打ちだと、それ以外の場所に入れている環境で壊れる
-    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
+    # フォント manifest は global 専用。per-user の root を見ると、global で
+    # 入っているアプリを「入っていない」と誤判定して復元せず終わる
+    $script:ScoopRoot = Get-ScoopGlobalRoot
     $script:Repo    = Split-Path $PSScriptRoot
-    $script:FontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    $script:FontDir = "$env:WINDIR\Fonts"
     $script:New     = Join-Path $script:Repo 'bucket\hackgen.json'
 
     # 「関係の無いフォントが影響を受けていない」で hackgen 自身の変更を除外するための
@@ -46,7 +48,7 @@
     # scoop update が bucket ではなくそのファイルを見続けることになる
     $script:OrigSource  = Get-AppInstallSource    -App 'hackgen' -ScoopRoot $script:ScoopRoot
     $script:OrigVersion = Get-AppInstalledVersion -App 'hackgen' -ScoopRoot $script:ScoopRoot
-    scoop uninstall hackgen 2>&1 | Out-Null
+    scoop uninstall -g hackgen 2>&1 | Out-Null
     $script:Before = Get-FontEnvSnapshot
 
     # 一時 bucket を作る。scoop bucket add は git リポジトリを要求する
@@ -85,13 +87,13 @@
 }
 
 AfterAll {
-    scoop uninstall hackgen 2>&1 | Out-Null
+    scoop uninstall -g hackgen 2>&1 | Out-Null
     scoop bucket rm $script:BucketName 2>&1 | Out-Null
     if (Test-Path $script:TmpBucket) { Remove-Item $script:TmpBucket -Recurse -Force }
     if ($script:WasInstalled) {
         Restore-AppInstall -App 'hackgen' -ScoopRoot $script:ScoopRoot `
             -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
-            -Fallback $script:New
+            -Fallback $script:New -Global
     }
     # 入れ直した結果が元どおりかまで確かめる(WasInstalled の分岐に関わらず常に)。
     # 試みるだけでは、再インストールが冪等でなかったときに緑のまま環境がずれる。
@@ -104,7 +106,7 @@ AfterAll {
 
 Describe '旧版から新版への更新' {
     It '旧版が bucket 経由で入る' {
-        scoop install "$script:BucketName/hackgen" 2>&1 | Out-Null
+        scoop install -g "$script:BucketName/hackgen" 2>&1 | Out-Null
         Test-HackgenListed '2\.9\.1' | Should -BeTrue
     }
 
@@ -133,7 +135,7 @@ Describe '旧版から新版への更新' {
         # (信用できない)$version を使うと、旧版(2.9.1)の退避ディレクトリを
         # 一度も参照できず、掃除されずオーファンとして残り続けていた(実機で確認済み)。
         # $dir から復元するよう直したので、ここで残っていないことを確認する
-        Join-Path "$env:LOCALAPPDATA\scoop-font-backup" 'hackgen-2.9.1' | Should -Not -Exist
+        Join-Path "$env:ProgramData\scoop-font-backup" 'hackgen-2.9.1' | Should -Not -Exist
     }
 
     It '新版のファイルがすべて登録されている' {
@@ -160,7 +162,7 @@ Describe '旧版から新版への更新' {
     }
 
     It 'uninstall で完全に戻る' {
-        scoop uninstall hackgen 2>&1 | Out-Null
+        scoop uninstall -g hackgen 2>&1 | Out-Null
         { Assert-FontEnvRestored -Before $script:Before } | Should -Not -Throw
     }
 }

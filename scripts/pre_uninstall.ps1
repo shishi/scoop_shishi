@@ -1,5 +1,11 @@
 ﻿# scoop:pre_uninstall  ここから 16 manifest 共通
-$fontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+# 見るのは %WINDIR%\Fonts だけにする。per-user 側(旧版の配置先)も調べると、
+# そこに残った同名ファイルが無関係なアプリにロックされているだけで exit 1 し、
+# global の uninstall / update が不可能になる。global uninstall が消す必要が
+# あるのは %WINDIR%\Fonts の実体だけ。旧版が per-user に残したファイルは
+# uninstaller が記録($e.Dest)を辿って片付け、ロックされていた分は
+# 「未解決」として報告する(1 件の失敗で全体を止めない作りになっている)
+$fontDir = "$env:WINDIR\Fonts"
 Get-ChildItem $dir -Recurse -Include '*.ttf', '*.otf' |
     Where-Object { $_.BaseName -notmatch '35' } |
     ForEach-Object {

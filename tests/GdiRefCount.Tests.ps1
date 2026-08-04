@@ -9,9 +9,9 @@
     # 実機の GDI もフォント環境も触らずに済ませるため、次の 3 つを差し替える。
     #   1. GDI の P/Invoke をカウンタ付きのスタブに差し替える。スクリプト側の
     #      Add-Type は -as [type] のガードで素通りし、全呼び出しがカウンタに入る
-    #   2. $env:LOCALAPPDATA を一時ディレクトリへ向ける
-    #   3. HKCU: PSDrive をサンドボックスのサブキーへ張り替える
-    # 3 は本物の HKCU を汚しうるので、張り替わったことを確認してから先へ進む。
+    #   2. $env:WINDIR と $env:ProgramData を一時ディレクトリへ向ける
+    #   3. HKLM: PSDrive をサンドボックスのサブキーへ張り替える
+    # 3 は本物の HKLM を汚しうるので、張り替わったことを確認してから先へ進む。
 
     $script:Repo = Split-Path $PSScriptRoot
 
@@ -108,22 +108,28 @@ public static System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint msg, Sys
     # --- 2/3. サンドボックス ---
     $script:Sandbox = Join-Path ([IO.Path]::GetTempPath()) "gdi-refcount-$([guid]::NewGuid())"
     New-Item -ItemType Directory -Path $script:Sandbox -Force | Out-Null
-    $script:RealLocalAppData = $env:LOCALAPPDATA
-    $env:LOCALAPPDATA = Join-Path $script:Sandbox 'localappdata'
-    New-Item -ItemType Directory -Path $env:LOCALAPPDATA -Force | Out-Null
+    # 素材の取得(上)はここより前で終わっている。$env:WINDIR を張り替えた後では拾えない
+    $script:RealWinDir = $env:WINDIR
+    $env:WINDIR = Join-Path $script:Sandbox 'windir'
+    New-Item -ItemType Directory -Path $env:WINDIR -Force | Out-Null
+    $script:RealProgramData = $env:ProgramData
+    $env:ProgramData = Join-Path $script:Sandbox 'programdata'
+    New-Item -ItemType Directory -Path $env:ProgramData -Force | Out-Null
 
+    # global 経路は HKLM を使うが、張り替え先は HKCU 配下にする。実 HKLM へ書けば
+    # 昇格が必要になるうえ、このマシンのフォント登録を壊しうる
     $script:SandboxRegRoot = 'HKEY_CURRENT_USER\Software\ScoopFontRefCountTest'
     # 張り替える前に作る。New-PSDrive は存在しないキーを root にできない。
     # ここはまだ本物の HKCU: を見ているので、この 1 行だけが実レジストリへの書き込み
     New-Item -Path 'HKCU:\Software\ScoopFontRefCountTest' -Force | Out-Null
 
-    $script:RealHkcuRoot = (Get-PSDrive HKCU).Root
-    Remove-PSDrive -Name HKCU -Force
-    New-PSDrive -Name HKCU -PSProvider Registry -Root $script:SandboxRegRoot -Scope Global | Out-Null
+    $script:RealHklmRoot = (Get-PSDrive HKLM).Root
+    Remove-PSDrive -Name HKLM -Force
+    New-PSDrive -Name HKLM -PSProvider Registry -Root $script:SandboxRegRoot -Scope Global | Out-Null
 
-    # 張り替わっていなければ本物の HKCU を汚す。ここで止める
-    if ((Get-PSDrive HKCU).Root -ne $script:SandboxRegRoot) {
-        throw "HKCU: の張り替えに失敗した。本物のレジストリを汚さないため中止する"
+    # 張り替わっていなければ本物の HKLM を汚す。ここで止める
+    if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
+        throw "HKLM: の張り替えに失敗した。本物のレジストリを汚さないため中止する"
     }
 
     # --- 対象スクリプト。manifest から取り出して原本と同じものを走らせる ---
@@ -140,17 +146,17 @@ public static System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint msg, Sys
     # scoop が用意する変数を模す。$dir は「app ディレクトリ」
     $script:RunInstaller = {
         param([string]$AppDir, [string]$AppName, [string]$Version)
-        $dir = $AppDir; $app = $AppName; $version = $Version; $global = $false
+        $dir = $AppDir; $app = $AppName; $version = $Version; $global = $true
         # 呼び出し元スコープの変数を読む点まで scoop と同じ
         Invoke-Expression $script:InstallerSrc
     }
     $script:RunUninstaller = {
         param([string]$AppDir, [string]$AppName, [string]$Version)
-        $dir = $AppDir; $app = $AppName; $version = $Version; $global = $false
+        $dir = $AppDir; $app = $AppName; $version = $Version; $global = $true
         Invoke-Expression $script:UninstallerSrc
     }
 
-    $script:FontDir = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts"
+    $script:FontDir = "$env:WINDIR\Fonts"
 
     # 置換後の名前は置換前と同じバイト長でなければならない。素材によって
     # ファミリ名の長さが違うので、短い識別子を素材の長さへ詰める
@@ -175,19 +181,20 @@ public static System.IntPtr SendMessageTimeout(System.IntPtr hWnd, uint msg, Sys
 AfterAll {
     # 張り替えたものを必ず戻す。戻さないとこのプロセスの後続テストが
     # サンドボックスのレジストリを見続ける
-    if ($script:RealHkcuRoot) {
-        Remove-PSDrive -Name HKCU -Force -ErrorAction SilentlyContinue
-        New-PSDrive -Name HKCU -PSProvider Registry -Root $script:RealHkcuRoot -Scope Global |
+    if ($script:RealHklmRoot) {
+        Remove-PSDrive -Name HKLM -Force -ErrorAction SilentlyContinue
+        New-PSDrive -Name HKLM -PSProvider Registry -Root $script:RealHklmRoot -Scope Global |
             Out-Null
     }
-    if ($script:RealLocalAppData) { $env:LOCALAPPDATA = $script:RealLocalAppData }
+    if ($script:RealWinDir) { $env:WINDIR = $script:RealWinDir }
+    if ($script:RealProgramData) { $env:ProgramData = $script:RealProgramData }
 
     Remove-Item -LiteralPath "Registry::$script:SandboxRegRoot" -Recurse -Force -ErrorAction SilentlyContinue
     if ($script:Sandbox) { Remove-Item -LiteralPath $script:Sandbox -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 # 'Static' は付けない。実レジストリにサンドボックス用のキーを 1 つ作り、
-# HKCU: PSDrive をプロセス単位で張り替えるため、-StaticOnly の対象外にする。
+# HKLM: PSDrive をプロセス単位で張り替えるため、-StaticOnly の対象外にする。
 # 'GdiRef' タグはこのスイートだけを走らせたいときのため
 Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
 
@@ -196,8 +203,8 @@ Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
         # 確かめても、以降の BeforeEach は無条件に Remove-Item -Recurse を撃つ。
         # 張り替えが外れていたら、このマシンの実フォント登録が黙って消える
         # (-ErrorAction SilentlyContinue なので失敗すら見えない)
-        if ((Get-PSDrive HKCU).Root -ne $script:SandboxRegRoot) {
-            throw 'HKCU: がサンドボックスを指していない。実レジストリを消さないため中止する'
+        if ((Get-PSDrive HKLM).Root -ne $script:SandboxRegRoot) {
+            throw 'HKLM: がサンドボックスを指していない。実レジストリを消さないため中止する'
         }
         if ($script:FontDir -notlike "$script:Sandbox*") {
             throw "フォントディレクトリがサンドボックス外を指している: $script:FontDir"
@@ -208,8 +215,8 @@ Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
         # どのケースが本当に壊れているのか分からなくなる(実測でそうなった)
         [ScoopStub.GdiV1]::Counts.Clear()
         Remove-Item -LiteralPath $script:FontDir -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath "$env:LOCALAPPDATA\scoop-font-backup" -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
+        Remove-Item -LiteralPath "$env:ProgramData\scoop-font-backup" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' `
             -Recurse -Force -ErrorAction SilentlyContinue
     }
 
@@ -273,7 +280,7 @@ Describe 'GDI 参照カウントの収支' -Tag 'GdiRef' {
         # 記録から HadGdiRef を落として「旧い版が書いた記録」を作る
         $states = @(
             (Join-Path $appDir 'scoop-font-state.json'),
-            (Join-Path "$env:LOCALAPPDATA\scoop-font-backup\refcase5-1.0.0" 'scoop-font-state.json')
+            (Join-Path "$env:ProgramData\scoop-font-backup\refcase5-1.0.0" 'scoop-font-state.json')
         )
         foreach ($sp in $states) {
             if (-not (Test-Path -LiteralPath $sp)) { continue }

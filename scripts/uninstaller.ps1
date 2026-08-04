@@ -99,20 +99,43 @@ $isOurFile = {
 # $dir は常に「今アンインストールしている版のディレクトリ」を指すので、
 # フォルダ名(=バージョン文字列)からそのまま復元する
 $appVersion = Split-Path $dir -Leaf
-# journal（退避先）が正。app ディレクトリ側は写しなので、無い場合の予備として使う
-$backupDir = "$env:LOCALAPPDATA\scoop-font-backup\$app-$appVersion"
-$statePath = Join-Path $backupDir 'scoop-font-state.json'
-if (-not (Test-Path -LiteralPath $statePath)) { $statePath = Join-Path $dir 'scoop-font-state.json' }
+# journal（退避先）が正。app ディレクトリ側は写しなので、無い場合の予備として使う。
+#
+# 退避先は版によって違う。global 専用にする前の版は per-user で入れており、
+# %LOCALAPPDATA%\scoop-font-backup に退避している。旧版で入れたものを
+# アンインストール・更新できなくなると、フォントとレジストリ登録が
+# 片付けられないまま取り残される。両方を探して、見つかった側を正とする。
+# 配置先とレジストリの根は記録側($e.Dest / $e.RegRoot)が持っているので、
+# 記録が読めれば per-user で入れたものも正しく片付く
+$backupCandidates = @(
+    "$env:ProgramData\scoop-font-backup\$app-$appVersion",
+    "$env:LOCALAPPDATA\scoop-font-backup\$app-$appVersion"   # global 化する前の版
+)
+$backupDir = $backupCandidates[0]
+$statePath = $null
+foreach ($candidate in $backupCandidates) {
+    $p = Join-Path $candidate 'scoop-font-state.json'
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    # 後始末(退避ディレクトリの削除)も見つけた側に対して行う。ここでずらすと
+    # 旧版の退避が消えずにオーファンとして残る
+    $backupDir = $candidate
+    $statePath = $p
+    break
+}
+if (-not $statePath) { $statePath = Join-Path $dir 'scoop-font-state.json' }
 if (-not (Test-Path -LiteralPath $statePath)) {
     # 何も無いなら黙って戻ってよいが、退避ディレクトリまたはアプリディレクトリに
     # 記録が残っている場合は「中断された uninstall がある」という意味なので、
     # 場所を明示して気づけるようにする。退役済みの記録は「見つかった方」を
     # そのまま退役させるため、backupDir 側とは限らず dir 側に残ることもある
     Write-Host "有効な記録が見つからない。フォントの削除は行わない。" -Foreground Yellow
-    Write-Host "  探した場所: $backupDir\scoop-font-state.json" -Foreground Yellow
-    Write-Host "              $dir\scoop-font-state.json" -Foreground Yellow
+    Write-Host "  探した場所:" -Foreground Yellow
+    foreach ($candidate in $backupCandidates) {
+        Write-Host "    $candidate\scoop-font-state.json" -Foreground Yellow
+    }
+    Write-Host "    $dir\scoop-font-state.json" -Foreground Yellow
     $foundAny = $false
-    foreach ($d in $backupDir, $dir) {
+    foreach ($d in (@($backupCandidates) + $dir)) {
         if (-not (Test-Path -LiteralPath $d)) { continue }
         $found = @(Get-ChildItem $d -Filter '*.json' -ErrorAction SilentlyContinue)
         if ($found.Count -eq 0) { continue }

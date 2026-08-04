@@ -1,7 +1,9 @@
 ﻿BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'FontEnv.psm1') -Force
     Import-Module (Join-Path $PSScriptRoot 'ScoopApp.psm1') -Force
-    $script:ScoopRoot = if ($env:SCOOP) { $env:SCOOP } else { "$env:USERPROFILE\scoop" }
+    # フォント manifest は global 専用。per-user の root を見ると、global で
+    # 入っているアプリを「入っていない」と誤判定して復元せず終わる
+    $script:ScoopRoot = Get-ScoopGlobalRoot
     $script:Repo     = Split-Path $PSScriptRoot
     $script:Manifest = Join-Path $script:Repo 'bucket\bizin-gothic-discord.json'
     $script:App      = 'bizin-gothic-discord'
@@ -32,15 +34,15 @@ if ([System.Windows.Media.Fonts]::SystemFontFamilies | Where-Object { `$_.Source
     # scoop update が bucket ではなくそのファイルを見続けることになる
     $script:OrigSource  = Get-AppInstallSource    -App $script:App -ScoopRoot $script:ScoopRoot
     $script:OrigVersion = Get-AppInstalledVersion -App $script:App -ScoopRoot $script:ScoopRoot
-    scoop uninstall $script:App 2>&1 | Out-Null
+    scoop uninstall -g $script:App 2>&1 | Out-Null
 }
 
 AfterAll {
-    scoop uninstall $script:App 2>&1 | Out-Null
+    scoop uninstall -g $script:App 2>&1 | Out-Null
     if ($script:WasInstalled) {
         Restore-AppInstall -App $script:App -ScoopRoot $script:ScoopRoot `
             -OriginalSource $script:OrigSource -OriginalVersion $script:OrigVersion `
-            -Fallback $script:Manifest
+            -Fallback $script:Manifest -Global
     }
     Assert-FontEnvRestored -Before $script:TrueBefore
 }
@@ -76,7 +78,7 @@ Describe 'install した直後にアプリからフォントが見えること' 
         # install の成否を捨てると、install 自体がこけたときに
         # 「フォントが見えない」という誤った症状で報告されてしまう。
         # 先に install の成立を確かめてから見え方を見る
-        $out = (scoop install $script:Manifest 2>&1 | Out-String)
+        $out = (scoop install -g $script:Manifest 2>&1 | Out-String)
         (scoop list $script:App 6>$null | Out-String) |
             Should -Match ([regex]::Escape($script:App)) -Because "install が成立していない: $out"
 
@@ -96,7 +98,7 @@ Describe 'install した直後にアプリからフォントが見えること' 
         (scoop list $script:App 6>$null | Out-String) |
             Should -Match ([regex]::Escape($script:App)) -Because '前の It が失敗している。この検証は成立しない'
 
-        $out = (scoop uninstall $script:App 2>&1 | Out-String)
+        $out = (scoop uninstall -g $script:App 2>&1 | Out-String)
         (scoop list $script:App 6>$null | Out-String) |
             Should -Not -Match ([regex]::Escape($script:App)) -Because "uninstall が成立していない: $out"
 
