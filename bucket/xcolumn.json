@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/mashersan/XColumn/releases/download/v1.53.2/XColumn_v1.53.2.zip",
-            "hash": "cd20e5e40f6ffc7a3f60e1889a1a9e6afef405b09d09a15defd5eef49985a4b6"
+            "hash": "dca0e598bf85c82707e40bb12c2e1c6301cf95d5d26e1e822315b89c0169a7cd"
         }
     },
     "suggest": {
