@@ -207,7 +207,7 @@
       "PlemolJPConsole-Thin.ttf",
       "PlemolJPConsole-ThinItalic.ttf"
     ],
-    "version": "3.0.0"
+    "version": "3.1.0"
   },
   "plemoljp-nf": {
     "files": [
@@ -244,7 +244,7 @@
       "PlemolJPConsoleNF-Thin.ttf",
       "PlemolJPConsoleNF-ThinItalic.ttf"
     ],
-    "version": "3.0.0"
+    "version": "3.1.0"
   },
   "udev-gothic": {
     "files": [
