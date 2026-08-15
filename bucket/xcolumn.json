@@ -1,12 +1,12 @@
 {
-    "version": "1.53.2",
+    "version": "1.54.0",
     "description": "XColumn — TweetDeck(旧)風のマルチカラム型 X クライアント。X の API を使わず WebView2 でタイムラインを表示する",
     "homepage": "https://github.com/mashersan/XColumn",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/mashersan/XColumn/releases/download/v1.53.2/XColumn_v1.53.2.zip",
-            "hash": "dca0e598bf85c82707e40bb12c2e1c6301cf95d5d26e1e822315b89c0169a7cd"
+            "url": "https://github.com/mashersan/XColumn/releases/download/v1.54.0/XColumn_v1.54.0.zip",
+            "hash": "86912cbfb069efc7eedcf29b6ebe54dcb96e92924c93154c4b7c34ba0a183a96"
         }
     },
     "suggest": {
