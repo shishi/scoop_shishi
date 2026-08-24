@@ -1,11 +1,11 @@
 {
-    "version": "2026.07.11",
+    "version": "2026.08.24",
     "description": "Win11Debloat — Windows 10/11 のプリインストールアプリ削除・テレメトリ無効化などをまとめて行う PowerShell スクリプト",
     "homepage": "https://github.com/Raphire/Win11Debloat",
     "license": "MIT",
-    "url": "https://github.com/Raphire/Win11Debloat/archive/refs/tags/2026.07.11.zip",
-    "hash": "e97c8e36698c7b543da0b77cc34439c1a0b4917525b45a9d1ae7a02e23d4711d",
-    "extract_dir": "Win11Debloat-2026.07.11",
+    "url": "https://github.com/Raphire/Win11Debloat/archive/refs/tags/2026.08.24.zip",
+    "hash": "00d1487b2e9b9691653774cc781ed3844e4b2fd5b0d91c32f6f78aa8c7892bd4",
+    "extract_dir": "Win11Debloat-2026.08.24",
     "pre_install": [
         "# scoop が .ps1 に張るシムは pwsh があればそちらを優先する(生成物を実測)。",
         "# ところが Win11Debloat.ps1 は PSEdition が Core だと「Windows PowerShell 5.1 で",
